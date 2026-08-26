@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Intelleta",
+        "description": "Sign in to your Intelleta account."
+      }
+    },
+    "abort": {
+      "not_implemented": "Not built yet. This is a scaffold; sign-in arrives with the next card."
+    }
+  }
+}

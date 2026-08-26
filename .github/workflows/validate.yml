@@ -1,0 +1,55 @@
+name: Validate
+
+# ⛔ THREE GATES, AND THE FIRST TWO ARE NOT OURS.
+#
+# hassfest is Home Assistant's own manifest validator and hacs is the
+# installer's. They enforce rules that change when THEIR projects change, not
+# when ours does — which is why this also runs weekly on a schedule. A gate
+# that only runs when we push tells us nothing about the drift that happens
+# while we are not looking.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 5 * * 1"
+
+jobs:
+  hassfest:
+    name: Home Assistant manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: Installer validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+          # ⚠ The logo lives in Home Assistant's own brands project and is
+          # reviewed by their maintainers on their timetable (card 94). Until
+          # that lands this check would fail for a reason we cannot fix by
+          # pushing, so it is ignored HERE and tracked THERE.
+          ignore: brands
+
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-test.txt
+      - name: Run
+        run: pytest tests/ -v
