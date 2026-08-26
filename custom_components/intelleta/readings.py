@@ -63,6 +63,29 @@ _META_BOUNDS: dict[str, tuple[float, float]] = {
 
 _VOICE_STATES = frozenset({"idle", "listening", "thinking", "responding", "disabled"})
 
+# What the cube reports it is actually SET to, as opposed to what anybody asked
+# for. Card 97 turns these into the value a control displays.
+#
+# ⛔⛔ THIS BLOCK ONLY EXISTS ON THE LOCAL PATH TODAY, and that is not an
+# oversight of ours — the device contract says of it, in as many words:
+# "Broadcast for UI; platform does not store it." So a reading fetched from our
+# cloud carries no applied settings at all, and a control reading from it has
+# nothing to show.
+#
+# The consequence, stated rather than discovered: until a cube can be reached
+# locally, a control knows what it ASKED for and not what the cube DID. The card
+# requires the opposite, so the honest behaviour is an unknown value rather than
+# echoing the request back — echoing it is precisely the "the customer picks,
+# the screen says saved, nothing changes" defect this programme has shipped
+# before.
+_CONFIG_BOUNDS: dict[str, tuple[float, float]] = {
+    "volume": (0, 100),
+    "brightness": (0, 100),
+    "poll_interval": (1, 86400),
+}
+
+_BRIGHTNESS_MODES = frozenset({"manual", "scheduled", "auto"})
+
 # The contract's own floor: devices must not publish before their clock is set,
 # so anything earlier is a cube that ignored that or a corrupted payload.
 _TIMESTAMP_FLOOR = 1700000000
@@ -155,5 +178,29 @@ def parse(payload: object) -> Readings:
     voice_state = payload.get("voice_state")
     if isinstance(voice_state, str) and voice_state in _VOICE_STATES:
         values["voice_state"] = voice_state
+
+    # What the cube says it is SET to. Prefixed so a setting can never be
+    # mistaken for a measurement — "brightness" the applied percentage and
+    # "brightness" a reading would otherwise collide in one flat namespace.
+    config = payload.get("config")
+    if isinstance(config, dict):
+        for key, bounds in _CONFIG_BOUNDS.items():
+            if key not in config:
+                continue
+            value = _number(config[key], bounds)
+            if value is not None:
+                values[f"config_{key}"] = value
+
+        mode = config.get("brightness_mode")
+        if isinstance(mode, str) and mode in _BRIGHTNESS_MODES:
+            values["config_brightness_mode"] = mode
+
+        screen = config.get("screen_power")
+        # ⚠ A REAL BOOLEAN ONLY. Elsewhere in this file a boolean is refused
+        # because it would masquerade as a number; here it is the ONLY
+        # acceptable type, and a 1 or a "true" is a payload we do not
+        # understand rather than one we should interpret.
+        if isinstance(screen, bool):
+            values["config_screen_power"] = screen
 
     return Readings(device_id=device_id, timestamp=timestamp, values=values or None)
