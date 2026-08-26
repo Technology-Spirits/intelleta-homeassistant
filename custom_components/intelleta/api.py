@@ -95,7 +95,22 @@ class CloudClient:
                     raise AuthFailed("the key was refused")
                 if response.status >= 400:
                     raise CloudUnavailable(f"cloud answered {response.status}")
-                body = await response.json()
+                # ⛔ content_type=None, FOR THE SAME REASON AS LocalClient BELOW,
+                # and this one was learned the hard way on 2026-08-26.
+                #
+                # aiohttp refuses to parse a perfectly good JSON body if the
+                # Content-Type header says anything else, and raises a
+                # ClientError — which lands in the handler below and becomes
+                # CloudUnavailable, i.e. "could not reach Intelleta". Our cloud
+                # had answered 200 with the customer's device list in 108ms.
+                #
+                # ⚠ THE DAMAGE IS THE MISATTRIBUTION. The customer was told to
+                # go and look at their own network for a fault that was ours,
+                # on a request that had already succeeded. The label was fixed
+                # at the source too, but this stays: a body that parses is a
+                # body we should accept, and the alternative is being one
+                # gateway default away from blaming the customer again.
+                body = await response.json(content_type=None)
         except AuthFailed:
             raise
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:

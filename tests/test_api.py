@@ -200,3 +200,47 @@ def test_the_local_call_goes_to_the_readings_path_over_plain_http():
 
     url, _ = session.calls[0]
     assert url == "http://10.0.0.5/readings"
+
+
+def test_a_json_body_labelled_text_plain_is_still_accepted():
+    """The live defect of 2026-08-26, pinned so it cannot come back.
+
+    ⛔ THE FAILURE THIS GUARDS AGAINST IS NOT "IT BROKE". It is "it broke and
+    we blamed the customer". Our cloud answered 200 with the device list in
+    108ms; API Gateway labelled it ``text/plain`` because the route returned no
+    headers; aiohttp refused to parse it and raised a ClientError; and the
+    integration told the customer "could not reach Intelleta — try again in a
+    moment", sending them to check their own broadband.
+
+    The label was fixed at the source. This pins the client's half, because a
+    body that parses is a body we should accept.
+    """
+    api = load("api")
+
+    class _Resp:
+        status = 200
+
+        async def json(self, content_type="application/json"):
+            # Exactly aiohttp's behaviour: refuse unless the caller opted out.
+            if content_type is not None:
+                raise aiohttp.ClientError(
+                    "Attempt to decode JSON with unexpected mimetype: text/plain"
+                )
+            return {"devices": [{"device_id": "aqm-1", "name": "Bench", "capabilities": ["co2"]}]}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _Session:
+        def get(self, *a, **k):
+            return _Resp()
+
+    devices = asyncio.run(
+        api.CloudClient(_Session(), "https://example.invalid", "intelleta_x").async_list_devices()
+    )
+
+    assert len(devices) == 1, "a mislabelled but valid body must still be read"
+    assert devices[0].device_id == "aqm-1"
