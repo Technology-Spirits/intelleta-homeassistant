@@ -18,7 +18,8 @@ _LOGGER = logging.getLogger(__name__)
 # nobody has built — which is why this list grew with card 97 rather than ahead
 # of it.
 PLATFORMS: list[Platform] = [
-    Platform.SENSOR,   # card 88 — the readings
+    Platform.SENSOR,         # card 88 — the readings
+    Platform.BINARY_SENSOR,  # card 88 — is the cube there at all
     Platform.NUMBER,   # card 97 — brightness, volume
     Platform.SELECT,   # card 97 — brightness mode, reporting interval
     Platform.SWITCH,   # card 97 — the screen
