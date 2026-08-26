@@ -3,21 +3,21 @@
     "step": {
       "user": {
         "title": "Intelleta",
-        "description": "Paste the key you created in your Intelleta account.",
+        "description": "Paste the key you created in the Intelleta portal, under Settings → Account → Home Assistant.",
         "data": {
           "credential": "Key"
         }
       },
       "reauth_confirm": {
         "title": "Intelleta",
-        "description": "Your key is no longer accepted. Create a new one in your Intelleta account and paste it here.",
+        "description": "Your key is no longer accepted. Create a new one in the Intelleta portal, under Settings → Account → Home Assistant, and paste it here.",
         "data": {
           "credential": "Key"
         }
       }
     },
     "error": {
-      "invalid_auth": "That key was not accepted. Check you copied all of it, or create a new one in your Intelleta account.",
+      "invalid_auth": "That key was not accepted. Check you copied all of it, or create a new one in the Intelleta portal, under Settings → Account → Home Assistant.",
       "cannot_connect": "Could not reach Intelleta. Your key is probably fine — try again in a moment.",
       "unknown": "Something went wrong that we did not expect. The Home Assistant log has the detail."
     },

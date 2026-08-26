@@ -12,8 +12,8 @@ time pressure, which is the only reason this file exists ahead of the code.
 Three places, and the order matters because only the first two are ours to
 control:
 
-- **In the portal**, on the page where they mint the key. Somebody who is
-  already looking for this is the easiest person to help.
+- **In the portal**, on the screen that mints the key — Settings → Account → Home Assistant. Somebody
+  who is already looking for this is the easiest person to help.
 - **In the box**, one line. Not instructions — just that it exists.
 - **In Home Assistant's own installer listing**, once the repository is public.
   This is the one that brings people who were not looking for us.
@@ -29,8 +29,14 @@ Once public: add as a custom repository in the installer, install, restart.
 
 ### 3. They type one thing, once
 
-**An Intelleta key**, minted in the portal, pasted into the integration's setup
-screen.
+**An Intelleta key**, minted in the portal under Settings → Account → Home Assistant, pasted into the
+integration's setup screen.
+
+⚠ **The key is shown once, at the moment it is created, and never again.** We
+keep only a one-way fingerprint of it, so "show me my key again" is not refused,
+it is impossible. Somebody who closes the page without copying it mints another
+— which costs them ten seconds, and is the whole reason a stolen backup of our
+database does not hand anybody a working key.
 
 ⛔ **They never type a Home Assistant token, and there is nowhere to put one.**
 Our integration runs inside Home Assistant, where being inside *is* the
@@ -62,7 +68,7 @@ not an answer; neither is a stack trace.
 
 | What went wrong | What we say |
 |---|---|
-| Key rejected | That the key was not accepted, and where to mint a new one |
+| Key rejected | That the key was not accepted, and where to mint a new one — by name, Settings → Account → Home Assistant, not "in the portal" |
 | Key revoked later | That it was revoked, and that a new one is needed — **not** a silent stop |
 | Account has no cubes | That the account is fine and has nothing claimed yet, with where to claim |
 | Cube owned but not found on the network | That we can see it on the account but not on this network — **and that readings will come from the internet meanwhile**, so this is a degradation, not a failure |
