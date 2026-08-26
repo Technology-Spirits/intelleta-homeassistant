@@ -62,7 +62,6 @@ def test_the_manifest_says_what_this_actually_is():
 def test_the_installer_metadata_is_present_and_parses():
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     assert hacs["name"]
-    assert hacs["content_in_root"] is False, "the component lives under custom_components/"
 
 
 def test_the_translations_match_the_strings():
@@ -75,3 +74,48 @@ def test_the_translations_match_the_strings():
         "strings.json and translations/en.json have drifted; en.json is the "
         "English rendering of the same keys"
     )
+
+
+def test_the_manifest_keys_are_in_the_order_home_assistant_demands():
+    """⚠ CAUGHT BY CI ON THE VERY FIRST PUSH, so it is pinned here instead.
+
+    Home Assistant's own validator requires `domain`, then `name`, then every
+    other key alphabetically. It is a real gate, it fails the build, and the
+    message is clear — but it costs a push-and-wait cycle to discover. This
+    test makes it a one-second failure on a laptop instead.
+    """
+    manifest = json.loads((COMPONENT / "manifest.json").read_text(encoding="utf-8"))
+    keys = list(manifest)
+    expected = ["domain", "name"] + sorted(
+        k for k in keys if k not in ("domain", "name")
+    )
+    assert keys == expected, (
+        "manifest keys must be domain, name, then alphabetical -- "
+        f"got {keys}, expected {expected}"
+    )
+
+
+def test_the_installer_file_carries_only_keys_the_installer_accepts():
+    """⚠ ALSO CAUGHT BY CI ON THE FIRST PUSH.
+
+    The first version of hacs.json carried `content_in_root` and
+    `render_readme`, and the installer rejected the whole file — which then
+    cascaded into it being unable to find the manifest at all, reported as the
+    confusing "expected a dictionary. Got None".
+
+    Unknown keys are not ignored here. Keep this list to what is actually
+    accepted, and add to it deliberately.
+    """
+    allowed = {
+        "name",
+        "homeassistant",
+        "hacs",
+        "zip_release",
+        "filename",
+        "country",
+        "persistent_directory",
+        "hide_default_branch",
+    }
+    hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
+    unknown = set(hacs) - allowed
+    assert not unknown, f"hacs.json carries keys the installer will reject: {sorted(unknown)}"
