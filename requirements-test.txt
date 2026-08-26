@@ -1,2 +1,22 @@
+# What the TEST run needs. Not what gets installed into a customer's home.
+#
+# ⛔ THIS FILE AND manifest.json's `requirements` ARE DIFFERENT LISTS, AND THE
+# DIFFERENCE MATTERS.
+#
+# `aiohttp` below is a good example: our client code imports it, so the tests
+# need it — but Home Assistant already ships it, so declaring it in the manifest
+# would ask every customer's installation to install a package it already has,
+# and risk pinning a version that fights the one Home Assistant chose.
+#
+# The manifest's `requirements` list stays EMPTY until something genuinely is
+# not already there, and there is a test asserting that, because every entry is
+# a package installed into somebody's home.
+#
+# ⚠ Do NOT add pytest-homeassistant-custom-component here. It imports
+# homeassistant.runner, which imports fcntl, which does not exist on Windows —
+# so it breaks test collection entirely on a Windows machine, including for the
+# tests that have nothing to do with Home Assistant. Anything that genuinely
+# needs a Home Assistant is verified against a real one instead. See the README.
 pytest>=8.0
 pytest-asyncio>=0.23
+aiohttp>=3.9
