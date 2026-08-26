@@ -36,3 +36,23 @@ DEFAULT_LOCAL_POLL_SECONDS = 30
 # Names of products, screens and messages are not, and nothing user-facing
 # should be invented here. Placeholders belong in strings.json where they are
 # easy to find and replace, never scattered through the code.
+
+# Where our API lives.
+#
+# ⛔⛔ THIS IS THE DEVELOPMENT ENDPOINT AND IT MUST NOT SHIP. Production has
+# never been deployed — there is a production environment and nothing has ever
+# been pushed to it — so there is no correct value to put here yet. Shipping
+# this one would point every customer's Home Assistant at the environment we
+# break things in, and it would work, right up until it did not.
+#
+# Card 96 owns the launch checklist. This line is on it.
+API_BASE_URL = "https://adko43qx21.execute-api.eu-central-1.amazonaws.com"
+
+# How often to ask the cloud, when the cloud is what we are asking.
+#
+# ⚠ SLOWER THAN THE LOCAL POLL, DELIBERATELY. The cube publishes on its own
+# schedule — between 30 seconds and 5 minutes, chosen by the customer — so
+# asking the cloud faster than the cube speaks costs requests and returns the
+# same row again. The local path can afford to be eager because it is a request
+# across the room.
+DEFAULT_CLOUD_POLL_SECONDS = 60

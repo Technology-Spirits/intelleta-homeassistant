@@ -3,11 +3,26 @@
     "step": {
       "user": {
         "title": "Intelleta",
-        "description": "Sign in to your Intelleta account."
+        "description": "Paste the key you created in your Intelleta account.",
+        "data": {
+          "credential": "Key"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Intelleta",
+        "description": "Your key is no longer accepted. Create a new one in your Intelleta account and paste it here.",
+        "data": {
+          "credential": "Key"
+        }
       }
     },
+    "error": {
+      "invalid_auth": "That key was not accepted. Check you copied all of it, or create a new one in your Intelleta account.",
+      "cannot_connect": "Could not reach Intelleta. Your key is probably fine — try again in a moment.",
+      "unknown": "Something went wrong that we did not expect. The Home Assistant log has the detail."
+    },
     "abort": {
-      "not_implemented": "Not built yet. This is a scaffold; sign-in arrives with the next card."
+      "already_configured": "That account is already set up."
     }
   }
 }

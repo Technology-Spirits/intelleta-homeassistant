@@ -1,29 +1,35 @@
-"""The Intelleta integration.
+"""The Intelleta integration. Card 88."""
 
-Scaffold only (card 87). Setting up a config entry lands in card 88; the
-credential that authorises it lands in card 89.
-"""
 from __future__ import annotations
 
 import logging
 
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import CONF_CREDENTIAL, DOMAIN
+from .coordinator import IntellettaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# Deliberately empty. Platforms arrive with the cards that build them:
-# sensors in 88, controls in 97. An entry here before the platform exists
-# makes Home Assistant log a failure on every startup for a thing nobody has
-# built yet.
-PLATFORMS: list[str] = []
+# ⚠ SENSORS ONLY, FOR NOW. Controls are card 97 and arrive with it. Listing a
+# platform before its file exists makes Home Assistant log a failure on every
+# startup for something nobody has built.
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Intelleta from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
+    coordinator = IntellettaCoordinator(hass, entry.data[CONF_CREDENTIAL])
+
+    # ⛔ THE FIRST REFRESH IS AWAITED, AND ITS FAILURE IS FATAL TO SETUP. Home
+    # Assistant will retry the whole entry later. Setting up "successfully" with
+    # no data would give the customer a device full of entities that have never
+    # had a value — indistinguishable from broken hardware.
+    await coordinator.async_config_entry_first_refresh()
+
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
