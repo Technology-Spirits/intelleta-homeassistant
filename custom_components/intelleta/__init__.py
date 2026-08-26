@@ -13,10 +13,17 @@ from .coordinator import IntellettaCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# ⚠ SENSORS ONLY, FOR NOW. Controls are card 97 and arrive with it. Listing a
-# platform before its file exists makes Home Assistant log a failure on every
-# startup for something nobody has built.
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+# ⚠ EVERY PLATFORM LISTED HERE MUST HAVE ITS FILE. Listing one before the file
+# exists makes Home Assistant log a failure on every startup for something
+# nobody has built — which is why this list grew with card 97 rather than ahead
+# of it.
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,   # card 88 — the readings
+    Platform.NUMBER,   # card 97 — brightness, volume
+    Platform.SELECT,   # card 97 — brightness mode, reporting interval
+    Platform.SWITCH,   # card 97 — the screen
+    Platform.BUTTON,   # card 97 — restart, refresh now
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
