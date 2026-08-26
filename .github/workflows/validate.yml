@@ -25,6 +25,25 @@ jobs:
   hacs:
     name: Installer validation
     runs-on: ubuntu-latest
+    # ⛔⛔ SKIPPED WHILE THIS REPOSITORY IS PRIVATE, AND IT TURNS ITSELF ON.
+    #
+    # The installer's validator does not read the checked-out files — it fetches
+    # the repository through GitHub's public API. On a private repository it can
+    # read nothing, and reports that as two CONTENT errors:
+    #
+    #   <Validation hacsjson> failed: The repository has an invalid 'hacs.json'
+    #   <Validation integration_manifest> failed: expected a dictionary. Got None
+    #
+    # Both files are fine. Measured 2026-08-26 by reducing hacs.json to the
+    # documented minimum, {"name": "..."}, and watching it fail identically.
+    #
+    # ⚠ THE POINT OF THE CONDITION RATHER THAN DELETING THE JOB: the owner ruled
+    # private while we build, public at launch (2026-08-25). A gate left red
+    # until then is a gate people learn to click past — this programme has
+    # already written that lesson down once. This one is quiet while it cannot
+    # work and starts enforcing by itself the day the repository goes public,
+    # with nobody needing to remember. See cards 87 and 96.
+    if: ${{ !github.event.repository.private }}
     steps:
       - uses: actions/checkout@v4
       - uses: hacs/action@main
