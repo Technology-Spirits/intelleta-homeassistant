@@ -1,14 +1,23 @@
 {
   "domain": "intelleta",
   "name": "Intelleta",
-  "codeowners": ["@mansoor-shaukat"],
+  "codeowners": [
+    "@mansoor-shaukat"
+  ],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": [
+    "zeroconf"
+  ],
   "documentation": "https://github.com/Technology-Spirits/intelleta-homeassistant",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/Technology-Spirits/intelleta-homeassistant/issues",
-  "loggers": ["intelleta"],
+  "loggers": [
+    "intelleta"
+  ],
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.1.0",
+  "zeroconf": [
+    "_intelleta._tcp.local."
+  ]
 }

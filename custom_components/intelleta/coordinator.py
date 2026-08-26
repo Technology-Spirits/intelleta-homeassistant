@@ -22,6 +22,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .api import AuthFailed, CloudClient, CloudUnavailable, LocalClient
 from .const import API_BASE_URL, DEFAULT_CLOUD_POLL_SECONDS
+from .discovery import apply_to, async_discover
 from .readings import Readings, parse
 from .source_policy import (
     SourceState,
@@ -74,11 +75,16 @@ class IntellettaCoordinator(DataUpdateCoordinator):
         for what exists and what each cube can do (card 93)."""
 
         self.addresses: dict[str, str] = {}
-        """device_id -> local address, once something has announced itself.
+        """device_id -> local address, for cubes heard announcing themselves AND
+        owned by this account.
 
-        ⚠ EMPTY UNTIL THE CUBE CAN ANNOUNCE (aqm 527). Everything simply uses
-        the cloud until then, which is the fallback working rather than a gap —
-        and it means this coordinator needs no change when local arrives."""
+        ⛔ WRITTEN ONLY BY discovery.apply_to, which asks matching.reconcile.
+        Nothing else may put an address in here: the whole security boundary of
+        the local path is that an address is trusted because the ACCOUNT lists
+        the cube, never because the network offered one.
+
+        ⚠ Empty on a network where announcement does not work, and that is fine
+        — every cube falls back to the cloud path."""
 
         self._sources: dict[str, SourceState] = {}
 
@@ -98,6 +104,17 @@ class IntellettaCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(str(err)) from err
 
         self.devices = {device.device_id: device for device in devices}
+
+        # ── Who is on the network, and which of them are ours (card 93) ──
+        #
+        # ⚠ EVERY CYCLE RATHER THAN ONCE AT SETUP. Cubes move, get switched off,
+        # change address, and are added to the account after the integration was
+        # installed. A one-shot sweep at startup would leave the local path
+        # frozen at whatever happened to be true that minute.
+        #
+        # ⛔ THE ACCOUNT LIST IS PASSED IN AS THE AUTHORITY. What answered on the
+        # network is untrusted input; reconcile decides, not this loop.
+        await self._async_refresh_addresses()
 
         results: dict = dict(self.data or {})
         now = self.hass.loop.time()
@@ -121,6 +138,25 @@ class IntellettaCoordinator(DataUpdateCoordinator):
         # A cube removed from the account stops being shown, rather than
         # lingering with its last reading for ever.
         return {k: v for k, v in results.items() if k in self.devices}
+
+    async def _async_refresh_addresses(self) -> None:
+        """Ask the network who is there, and keep the ones this account owns.
+
+        ⚠ BEST EFFORT, ALWAYS. If discovery fails or the network blocks it,
+        every cube simply stays on the cloud path — a house where announcement
+        does not work must still be a house where the product works.
+        """
+        try:
+            discovered = await async_discover(self.hass)
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug("discovery sweep failed: %s", err)
+            return
+
+        apply_to(
+            self,
+            [device.as_dict() for device in self.devices.values()],
+            discovered,
+        )
 
     async def _read_one(self, device_id: str, now: float) -> Readings | None:
         state = self.source_state(device_id)

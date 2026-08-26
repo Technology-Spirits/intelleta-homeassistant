@@ -86,6 +86,27 @@ class IntellettaConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
         )
 
+    async def async_step_zeroconf(self, discovery_info) -> ConfigFlowResult:  # noqa: ANN001
+        """A cube announced itself on the network (aqm 527).
+
+        ⛔ DISCOVERY IS NOT AUTHORISATION. Hearing a cube says only that one is
+        nearby — it could be a flat-mate's, a neighbour's through a thin wall, or
+        something merely claiming to be one. So this cannot set anything up on
+        its own; all it does is offer the ordinary sign-in, after which the
+        ACCOUNT decides which cubes are actually this customer's (card 93).
+
+        ⚠ AND THIS STEP MUST EXIST BECAUSE THE MANIFEST NAMES THE SERVICE. Home
+        Assistant calls it on every matching announcement, and a flow without it
+        raises on a perfectly ordinary event — one neighbour's cube would fill
+        the customer's log with errors about our integration.
+        """
+        # Already set up: the coordinator's own sweep handles this cube from
+        # here, so there is nothing to prompt about.
+        if self._async_current_entries():
+            return self.async_abort(reason="already_configured")
+
+        return await self.async_step_user()
+
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """A key that was working has stopped — almost always a revoke.
 
