@@ -38,6 +38,27 @@ pip install -r requirements-test.txt
 pytest tests/ -v
 ```
 
+### ⛔ Home Assistant's test harness does not run on Windows
+
+Measured 2026-08-26. `pytest-homeassistant-custom-component` imports
+`homeassistant.runner`, which imports `fcntl` — POSIX only. Installing it on a
+Windows machine breaks test collection entirely, including for tests that have
+nothing to do with Home Assistant.
+
+`homeassistant.core` itself imports fine on Windows; it is specifically the
+harness that does not.
+
+So the split is deliberate:
+
+- **Logic modules import nothing** and are tested here, on any machine, in under
+  a second. That is most of the rules worth pinning — matching, the fallback
+  policy, capability gating, parsing.
+- **Anything that genuinely needs Home Assistant** is verified against a real
+  one: the bench instance in `bench-ha/`, or CI, which runs on Linux.
+
+⚠ Do not add the harness to `requirements-test.txt` to "fix" a Windows machine.
+It will fix nothing and break the fast suite for everybody.
+
 Three gates run on every push, and two of them are not ours: Home Assistant's
 own manifest validator and the installer's. They also run weekly, because they
 enforce rules that change when *their* projects change rather than when ours
