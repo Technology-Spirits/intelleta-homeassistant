@@ -22,6 +22,15 @@ would publish the protocol when this goes public, and would tie software living
 in customers' homes to a contract it cannot be upgraded alongside. There is a
 test that fails if anyone tries.
 
+## Installing it
+
+The customer path — how somebody gets from "I have a cube" to "it is in my Home
+Assistant", what they type, and what every failure along the way should say — is
+written down in [docs/installing.md](docs/installing.md).
+
+⚠ It was written **before** the code rather than after, because the alternative
+is inventing it at release under time pressure.
+
 ## Development
 
 ```sh
