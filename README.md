@@ -2,34 +2,25 @@
 
 Brings Intelleta air-sensing devices into Home Assistant.
 
-> **⚠ Scaffold.** The repository and its gates exist (card 87). It does not yet
-> do anything useful — sign-in and readings arrive with card 88. It is private
-> until launch, deliberately.
+## How it works
 
-## How it will work
-
-Readings come **from the cube over your own network**, so they keep arriving
-when your broadband does not. Our cloud is the fallback, not the path.
-
-You sign in once with your Intelleta account. That is required before anything
-works — a deliberate decision, taken knowing it costs a smoother first run.
+You sign in once with a key from your Intelleta account. Your devices then appear
+in Home Assistant with the readings each one measures. Readings arrive through
+your Intelleta account; reading a device directly over your own network is
+designed, and not yet live.
 
 ## What this repository is not
 
 ⛔ **It does not contain the device's wire protocol, and never will.** It talks
-to our API and to the cube's own local endpoint. Copying the device contract in
-would publish the protocol when this goes public, and would tie software living
-in customers' homes to a contract it cannot be upgraded alongside. There is a
-test that fails if anyone tries.
+to our API and to the device's own local endpoint. Copying the device contract in
+would publish the protocol, and would tie software living in customers' homes to
+a contract it cannot be upgraded alongside. There is a test that fails if anyone
+tries.
 
 ## Installing it
 
-The customer path — how somebody gets from "I have a cube" to "it is in my Home
-Assistant", what they type, and what every failure along the way should say — is
-written down in [docs/installing.md](docs/installing.md).
-
-⚠ It was written **before** the code rather than after, because the alternative
-is inventing it at release under time pressure.
+[docs/installing.md](docs/installing.md). Notes for whoever releases it are in
+[docs/maintaining.md](docs/maintaining.md).
 
 ## Development
 
