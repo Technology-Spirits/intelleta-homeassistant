@@ -3,21 +3,21 @@
     "step": {
       "user": {
         "title": "Intelleta",
-        "description": "Paste the key from the Intelleta portal (Account → Integration keys → Mint a key). A key is shown once. If you did not copy it, mint another.",
+        "description": "Paste the key from the Intelleta app (Account → Integration keys → Mint a key). A key is shown once. If you did not copy it, mint another.",
         "data": {
           "credential": "Key"
         }
       },
       "reauth_confirm": {
         "title": "Intelleta",
-        "description": "Your key is no longer accepted. Mint a new one in the Intelleta portal (Account → Integration keys → Mint a key) and paste it here.",
+        "description": "Your key is no longer accepted. Mint a new one in the Intelleta app (Account → Integration keys → Mint a key) and paste it here.",
         "data": {
           "credential": "Key"
         }
       }
     },
     "error": {
-      "invalid_auth": "The key was not accepted. Paste the whole key again, or mint a new one in the Intelleta portal (Account → Integration keys → Mint a key).",
+      "invalid_auth": "The key was not accepted. Paste the whole key again, or mint a new one in the Intelleta app (Account → Integration keys → Mint a key).",
       "cannot_connect": "Could not reach Intelleta. Check your internet connection and try again in a moment. Your key is probably fine.",
       "unknown": "Something unexpected went wrong. The Home Assistant log has the detail."
     },
