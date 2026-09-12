@@ -8,7 +8,7 @@ In HACS, open **Integrations**, then **Custom repositories** from the three-dot 
 
 ## 2. Mint a key
 
-In the Intelleta portal, go to **Account → Integration keys → Mint a key**. When it asks what will use the key, type a name such as Home Assistant.
+In the Intelleta app, go to **Account → Integration keys → Mint a key**. When it asks what will use the key, type a name such as Home Assistant.
 
 Copy the key immediately: it is shown once and never again. If you lose it, mint another and revoke the old one in the same place.
 
