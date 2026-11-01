@@ -5,10 +5,22 @@ Brings Intelleta air-sensing devices into Home Assistant.
 ## How it works
 
 You sign in once with a key from your Intelleta account. Your devices then appear
-in Home Assistant with the readings each one measures. Readings come straight
-from each device over your own network, at the address your account holds for
-it; when a device cannot be reached that way, they arrive through your Intelleta
-account instead.
+in Home Assistant with the readings each one measures.
+
+Readings come straight from each device over your own network. Your account
+tells Home Assistant where each device is, so you type no address. If a device
+cannot be reached on your network, its readings come through your Intelleta
+account instead, and switch back once the device can be reached again.
+
+If your internet goes down, readings keep coming over your network, unless
+Home Assistant starts or restarts during the outage: it learns your devices
+from your account each time it starts, so until the internet returns,
+everything is unavailable.
+
+Controls (volume, brightness, screen, brightness mode) show the value the
+device itself reports. Changing one goes through your Intelleta account and
+needs the internet. That is deliberate: on your network, the device gives out
+readings and takes no commands.
 
 ## What this repository is not
 
