@@ -20,7 +20,9 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import AuthFailed, CloudClient, CloudUnavailable, LocalClient
+import aiohttp
+
+from .api import CLOUD_TIMEOUT_S, AuthFailed, CloudClient, CloudUnavailable, LocalClient
 from .const import API_BASE_URL, DEFAULT_CLOUD_POLL_SECONDS
 from .discovery import apply_to, async_discover
 from .matching import account_announcements
@@ -28,6 +30,7 @@ from .readings import Readings, parse
 from .source_policy import (
     SourceState,
     accept_reading,
+    account_list_for_cycle,
     on_local_failure,
     on_local_success,
     should_try_local,
@@ -97,6 +100,12 @@ class IntellettaCoordinator(DataUpdateCoordinator):
 
         self._sources: dict[str, SourceState] = {}
 
+        self.cloud_reachable: bool = True
+        """Whether the account answered on the last cycle. When it did not, the
+        device list we already hold stands and readings come over the home
+        network (source_policy.account_list_for_cycle). For the log and the
+        entity attribute; never a decision."""
+
     def source_state(self, device_id: str) -> SourceState:
         return self._sources.setdefault(device_id, SourceState())
 
@@ -110,9 +119,33 @@ class IntellettaCoordinator(DataUpdateCoordinator):
             # stopped working" with nothing on screen to explain it.
             raise ConfigEntryAuthFailed(str(err)) from err
         except CloudUnavailable as err:
-            raise UpdateFailed(str(err)) from err
+            # ⛔ THE CLOUD BEING AWAY IS NOT THE UPDATE FAILING. Raising here
+            # marked every entity unavailable the moment the broadband was
+            # pulled (the owner's box, 2026-11-01) while every device sat on
+            # the home network answering. The list we hold stands; the one
+            # case with nothing to work from is decided in the policy.
+            fetched = None
+            reason = str(err)
+        else:
+            fetched = {device.device_id: device for device in devices}
+            reason = ""
 
-        self.devices = {device.device_id: device for device in devices}
+        chosen = account_list_for_cycle(self.devices, fetched)
+        if chosen is None:
+            raise UpdateFailed(reason)
+
+        if (fetched is None) == self.cloud_reachable:
+            # A transition, either way; said once, not every minute.
+            if fetched is None:
+                _LOGGER.info(
+                    "the account could not be reached (%s); keeping the %d device(s) "
+                    "already known and reading them over the home network",
+                    reason, len(chosen),
+                )
+            else:
+                _LOGGER.info("the account is reachable again")
+        self.cloud_reachable = fetched is not None
+        self.devices = chosen
 
         # ── Who is on the network, and which of them are ours (card 93) ──
         #
@@ -190,6 +223,10 @@ class IntellettaCoordinator(DataUpdateCoordinator):
             async with self._session.get(
                 f"{API_BASE_URL}/integration/devices/{device_id}/latest",
                 headers={"Authorization": f"Bearer {self._key}"},
+                # ⚠ BOUNDED. With the internet down this is the call that
+                # would otherwise hang the whole cycle for a device the home
+                # network cannot reach either.
+                timeout=aiohttp.ClientTimeout(total=CLOUD_TIMEOUT_S),
             ) as response:
                 if response.status != 200:
                     return None

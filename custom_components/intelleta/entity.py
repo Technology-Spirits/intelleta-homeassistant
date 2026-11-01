@@ -68,6 +68,7 @@ class IntellettaEntity(CoordinatorEntity):
             "source": state.active.value,
             "local_address": address,
             "local_address_from": via if address else None,
+            "cloud_reachable": getattr(self.coordinator, "cloud_reachable", True),
         }
 
     @property
