@@ -127,6 +127,34 @@ def should_try_local(state: SourceState, now: float) -> bool:
     return now >= state.next_local_attempt_at
 
 
+def account_list_for_cycle(known: dict, fetched: dict | None) -> dict | None:
+    """Which device list this cycle works from.
+
+    ⛔ THE CLOUD BEING AWAY MUST NOT TAKE THE HOME NETWORK WITH IT. The first
+    live test of the local road (the owner's own box, 2026-11-01) was pulling
+    the broadband: every reading went "Unavailable" at once, because the cycle
+    began by asking the account which devices exist and treated that call
+    failing as the whole update failing — while every device sat on the home
+    network answering. A local road that needs the cloud to be up is not one.
+
+    So: when the account answered, its list is the truth, as ever (even an
+    empty one — a device removed from the account must disappear). When it did
+    not answer, the list we already hold stands and the devices are read over
+    the home network. Only when the cloud is away AND nothing is known yet
+    (the first cycle after a start with no internet) is there genuinely nothing
+    to do, and that is the one case that is a failed update.
+
+    `fetched` is None when the cloud could not be reached. An auth refusal is
+    not this function's business: it is a different answer with a different
+    prompt, handled before this is asked.
+    """
+    if fetched is not None:
+        return fetched
+    if known:
+        return known
+    return None
+
+
 def accept_reading(
     current_timestamp: int | None,
     incoming_timestamp: int | None,

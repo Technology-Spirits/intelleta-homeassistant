@@ -20,6 +20,7 @@ on_local_success = policy.on_local_success
 on_local_failure = policy.on_local_failure
 should_try_local = policy.should_try_local
 accept_reading = policy.accept_reading
+account_list_for_cycle = policy.account_list_for_cycle
 THRESHOLD = policy.LOCAL_FAILURES_BEFORE_FALLBACK
 RETRY_AFTER = policy.RETRY_LOCAL_AFTER_S
 RETRY_MAX = policy.RETRY_LOCAL_MAX_S
@@ -172,3 +173,31 @@ def test_the_customer_can_be_told_which_source_is_live():
     "I am looking at a copy because something on my network is broken"."""
     assert SourceState().using_fallback is False
     assert fail_n(THRESHOLD).using_fallback is True
+
+
+# ── the cloud being away does not take the home network with it (card 5) ────
+
+
+def test_when_the_account_answers_its_list_is_the_truth():
+    known = {"aqm-A": "old A", "aqm-B": "old B"}
+    fetched = {"aqm-A": "new A"}
+    assert account_list_for_cycle(known, fetched) == fetched
+
+
+def test_an_empty_answer_from_the_account_is_still_the_truth():
+    """A device removed from the account must disappear, not linger because
+    the empty list looked like an outage."""
+    assert account_list_for_cycle({"aqm-A": "A"}, {}) == {}
+
+
+def test_the_cloud_being_away_keeps_the_devices_already_known():
+    """The owner pulled the broadband on 2026-11-01 and every reading went
+    Unavailable while every device sat on the home network answering. The
+    known list stands and the devices are read locally."""
+    known = {"aqm-A": "A", "aqm-B": "B"}
+    assert account_list_for_cycle(known, None) is known
+
+
+def test_the_cloud_being_away_with_nothing_known_is_the_one_failed_cycle():
+    """Started with no internet: there is genuinely nothing to read."""
+    assert account_list_for_cycle({}, None) is None
