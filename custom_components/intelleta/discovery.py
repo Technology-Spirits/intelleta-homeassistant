@@ -142,6 +142,7 @@ def apply_to(coordinator, account_devices: list[dict], discovered: list[dict]) -
     result = reconcile(account_devices, discovered)
 
     coordinator.addresses = {a.device_id: a.address for a in result.adopted}
+    coordinator.address_via = {a.device_id: a.via for a in result.adopted}
 
     if result.ignored:
         # ⚠ AT DEBUG, NOT AS A WARNING. In a block of flats, hearing somebody
@@ -154,6 +155,10 @@ def apply_to(coordinator, account_devices: list[dict], discovered: list[dict]) -
                 _LOGGER.debug("ignoring %s — %s", announced, why.value)
 
     _LOGGER.debug(
-        "discovery: %d adopted, %d cloud-only, %d ignored",
-        len(result.adopted), len(result.cloud_only), len(result.ignored),
+        "addresses: %d adopted (%d from the account, %d heard on the network), "
+        "%d cloud-only, %d ignored",
+        len(result.adopted),
+        sum(1 for a in result.adopted if a.via == "account"),
+        sum(1 for a in result.adopted if a.via != "account"),
+        len(result.cloud_only), len(result.ignored),
     )

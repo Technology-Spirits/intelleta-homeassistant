@@ -28,6 +28,18 @@ the open, as local devices normally do. That is accepted for readings. It does
 mean an announcement can be imitated by anything on the same network, which is
 precisely why the account list decides and the announcement does not.
 
+⭐ THE ACCOUNT'S OWN ADDRESS COMES FIRST (card 5, 2026-11-01). Every device
+reports its home-network address to the account when it starts (the house line,
+aqm 846), and the account's device list carries it as `lan_ip`. That address is
+turned into an announcement here (`account_announcements`) and goes through the
+SAME reconcile as a network sighting, ahead of it — so a device is reached at
+the address the account vouches for, a network sighting fills in only for a
+device the account has no address for, and the cloud remains the fallback. A
+home router drops the multicast group minutes after a device joins (measured
+2026-10-22 and again 2026-11-01), so the broadcast alone left every reading on
+the cloud road. The authority has not moved: the account list decides both the
+device AND, now, the first address.
+
 This module deliberately imports nothing — not Home Assistant, not our API
 client. It is a decision about two lists, and a decision is worth testing on
 its own.
@@ -62,6 +74,10 @@ class Adopted:
     address: str
     name: str
     capabilities: tuple[str, ...] = ()
+    via: str = "network"
+    """Where the address came from: "account" (the device list's `lan_ip`) or
+    "network" (heard announcing itself). For the log line and the entity
+    attribute; never for a decision — both roads passed the same gate."""
 
 
 @dataclass(frozen=True)
@@ -108,6 +124,55 @@ def normalise_device_id(value: object) -> str | None:
     return cleaned.upper()
 
 
+def is_unicast_ipv4(value: object) -> bool:
+    """The house line's address rule, in this integration's words: a dotted
+    IPv4 with four plain octets 0-255 (no leading zeros), and a unicast one —
+    not unspecified, not broadcast, not loopback, not multicast. The device's
+    own `/readings` lives at such an address or nowhere."""
+    if not isinstance(value, str):
+        return False
+    parts = value.strip().split(".")
+    if len(parts) != 4:
+        return False
+    octets = []
+    for part in parts:
+        if not part.isdigit() or (len(part) > 1 and part[0] == "0") or len(part) > 3:
+            return False
+        n = int(part)
+        if n > 255:
+            return False
+        octets.append(n)
+    if octets == [0, 0, 0, 0] or octets == [255, 255, 255, 255]:
+        return False
+    if octets[0] == 127 or 224 <= octets[0] <= 239:
+        return False
+    return True
+
+
+def account_announcements(account_devices: list[dict]) -> list[dict]:
+    """The account's own addresses, shaped like announcements.
+
+    ⭐ FIRST IN THE LIST HANDED TO `reconcile`, so the account's address wins
+    over a network sighting of the same device (reconcile adopts a device once,
+    first address seen). A `lan_ip` that is not a unicast IPv4 is not an
+    address at all and yields nothing — the device then has only the network
+    and the cloud, as before.
+    """
+    out: list[dict] = []
+    for device in account_devices or []:
+        if not isinstance(device, dict):
+            continue
+        address = device.get("lan_ip")
+        if not is_unicast_ipv4(address):
+            continue
+        out.append({
+            "device_id": device.get("device_id"),
+            "address": address.strip(),
+            "via": "account",
+        })
+    return out
+
+
 def reconcile(
     account_devices: list[dict],
     discovered: list[dict],
@@ -115,7 +180,9 @@ def reconcile(
     """Decide which announced cubes may be adopted.
 
     `account_devices` is what our API returned for the signed-in account — the
-    authority. `discovered` is whatever was heard on the network — untrusted.
+    authority. `discovered` is whatever was heard on the network — untrusted —
+    with the account's own addresses (`account_announcements`) ahead of it when
+    the caller wants them to win, which it does.
     """
     # Index the authority first. Anything not in here cannot be adopted, no
     # matter how convincing it sounds.
@@ -155,10 +222,12 @@ def reconcile(
 
         record = owned[key]
         seen.add(key)
+        via = announcement.get("via")
         adopted.append(
             Adopted(
                 device_id=record.get("device_id") or key,
                 address=address.strip(),
+                via=via if via in ("account", "network") else "network",
                 # ⚠ THE NAME COMES FROM THE ACCOUNT, NOT THE ANNOUNCEMENT.
                 # What the customer called their cube lives in their account;
                 # letting the network supply a display name would let anything

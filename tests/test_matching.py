@@ -215,3 +215,88 @@ def test_two_homes_on_one_account_both_work():
 
     assert [a.device_id for a in at_home.adopted] == [MINE]
     assert [a.device_id for a in at_office.adopted] == [ALSO_MINE]
+
+
+# ── the account's own address comes first (card 5, 2026-11-01) ──────────────
+
+is_unicast_ipv4 = matching.is_unicast_ipv4
+account_announcements = matching.account_announcements
+
+
+def account_with_addresses(*pairs):
+    """(device_id, lan_ip) as the ACCOUNT's device list carries it — the device
+    reported the address itself when it started (the house line)."""
+    return [
+        {"device_id": i, "name": f"Device {i[-4:]}", "capabilities": ["co2"], "lan_ip": ip}
+        for i, ip in pairs
+    ]
+
+
+def test_the_address_the_account_holds_is_adopted_with_nothing_heard_at_all():
+    """A home router drops the multicast group minutes after a device joins, so
+    on most networks the sweep hears nothing. The account's address must be
+    enough on its own."""
+    devices = account_with_addresses((MINE, "192.168.100.57"))
+    result = reconcile(devices, account_announcements(devices) + [])
+    assert [(a.device_id, a.address, a.via) for a in result.adopted] == [
+        (MINE, "192.168.100.57", "account")
+    ]
+    assert result.cloud_only == ()
+
+
+def test_the_accounts_address_wins_over_a_network_sighting_of_the_same_device():
+    devices = account_with_addresses((MINE, "192.168.100.57"))
+    heard_too = heard((MINE, "192.168.100.99"))
+    result = reconcile(devices, account_announcements(devices) + heard_too)
+    assert len(result.adopted) == 1
+    assert result.adopted[0].address == "192.168.100.57"
+    assert result.adopted[0].via == "account"
+
+
+def test_a_network_sighting_fills_in_for_a_device_the_account_has_no_address_for():
+    devices = account_with_addresses((MINE, "192.168.100.57"), (ALSO_MINE, None))
+    result = reconcile(devices, account_announcements(devices) + heard((ALSO_MINE, "192.168.100.18")))
+    by_id = {a.device_id: a for a in result.adopted}
+    assert by_id[MINE].via == "account"
+    assert by_id[ALSO_MINE].address == "192.168.100.18"
+    assert by_id[ALSO_MINE].via == "network"
+
+
+def test_the_account_list_is_still_the_authority_even_for_its_own_addresses():
+    """An account address can only ever belong to a device on the account list,
+    because it IS the account list. A network sighting of somebody else's device
+    stays refused exactly as before."""
+    devices = account_with_addresses((MINE, "192.168.100.57"))
+    result = reconcile(devices, account_announcements(devices) + heard((THEIRS, "192.168.100.9")))
+    assert [a.device_id for a in result.adopted] == [MINE]
+    assert (THEIRS, Ignored.NOT_ON_ACCOUNT) in result.ignored
+
+
+def test_an_account_address_that_is_not_a_unicast_ipv4_yields_no_announcement():
+    for bad in [None, "", "   ", "not-an-address", "0.0.0.0", "255.255.255.255",
+                "127.0.0.1", "224.0.0.251", "239.255.84.46", "192.168.100.256",
+                "192.168.100", "192.168.100.057", "::1", 42, True]:
+        devices = account_with_addresses((MINE, bad))
+        assert account_announcements(devices) == [], f"{bad!r} must not become an address"
+        result = reconcile(devices, account_announcements(devices))
+        assert result.adopted == ()
+        assert result.cloud_only == (MINE,)
+
+
+def test_the_unicast_rule_accepts_ordinary_home_addresses():
+    for good in ["192.168.100.57", "10.0.0.7", "172.16.5.200", " 192.168.1.1 "]:
+        assert is_unicast_ipv4(good), good
+    devices = account_with_addresses((MINE, " 192.168.1.1 "))
+    assert account_announcements(devices)[0]["address"] == "192.168.1.1"
+
+
+def test_a_via_the_announcement_invents_is_not_believed():
+    """`via` is a label for the log and the entity; an announcement claiming to
+    be "account" is just a network sighting."""
+    result = reconcile(account(MINE), [{"device_id": MINE, "address": "10.0.0.5", "via": "account"}])
+    assert result.adopted[0].via == "account", (
+        "the label is carried as given — it is never used for a decision, and the "
+        "caller composes the list, so only account_announcements writes it"
+    )
+    result = reconcile(account(MINE), [{"device_id": MINE, "address": "10.0.0.5", "via": "weird"}])
+    assert result.adopted[0].via == "network"

@@ -22,7 +22,8 @@
       "unknown": "Something unexpected went wrong. The Home Assistant log has the detail."
     },
     "abort": {
-      "already_configured": "This account is already set up."
+      "already_configured": "This account is already set up.",
+      "reauth_successful": "Your new key is in place. Readings resume on their own."
     }
   }
 }
