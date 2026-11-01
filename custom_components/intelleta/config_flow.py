@@ -120,11 +120,49 @@ class IntellettaConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        if user_input is None:
-            return self.async_show_form(
-                step_id="reauth_confirm", data_schema=STEP_USER_SCHEMA
-            )
-        return await self.async_step_user(user_input)
+        """Take the new key, prove it the same way setup does, and UPDATE the
+        entry the customer already has.
+
+        ⛔ NOT A DETOUR THROUGH `async_step_user`. That was 0.1.0's shape, and it
+        showed "Unknown error occurred" the first time anybody actually revoked
+        a key (the bench, 2026-11-01): the user step ends in
+        `async_create_entry`, and Home Assistant refuses to create a NEW entry
+        from a reauth flow — the entities, their history and the customer's
+        dashboards hang off the existing entry, so a new one would orphan all of
+        it. Reauth updates the key in place and reloads; nothing else changes.
+
+        ⚠ THE KEY IS STILL PROVED BY THE WORKING PATH (the device list), and the
+        three answers are the same three as at setup, for the same reasons.
+        """
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            key = (user_input.get(CONF_CREDENTIAL) or "").strip()
+            session = async_get_clientsession(self.hass)
+
+            try:
+                await CloudClient(session, API_BASE_URL, key).async_list_devices()
+            except AuthFailed:
+                errors["base"] = "invalid_auth"
+            except CloudUnavailable:
+                errors["base"] = "cannot_connect"
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("unexpected error validating the replacement key")
+                errors["base"] = "unknown"
+            else:
+                # The entry's unique id is the fingerprint of the key it holds
+                # (see _account_fingerprint), so it moves with the key: a later
+                # attempt to set this same key up a second time is still caught
+                # as "already configured".
+                return self.async_update_reload_and_abort(
+                    self._get_reauth_entry(),
+                    data_updates={CONF_CREDENTIAL: key},
+                    unique_id=_account_fingerprint(key),
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm", data_schema=STEP_USER_SCHEMA, errors=errors
+        )
 
 
 def _account_fingerprint(key: str) -> str:
