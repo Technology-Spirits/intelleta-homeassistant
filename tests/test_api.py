@@ -152,6 +152,7 @@ def test_the_device_hands_matching_the_plain_dict_it_expects():
         "device_id": "aqm-X",
         "name": "Study",
         "capabilities": ["co2"],
+        "lan_ip": None,  # card 5: the account's address rides along, None when it has none
     }
 
 
@@ -244,3 +245,39 @@ def test_a_json_body_labelled_text_plain_is_still_accepted():
 
     assert len(devices) == 1, "a mislabelled but valid body must still be read"
     assert devices[0].device_id == "aqm-1"
+
+
+# ── the account's address rides on the device (card 5, 2026-11-01) ──────────
+
+
+def test_the_devices_home_network_address_comes_with_the_list():
+    session = FakeSession(FakeResponse(body={"devices": [
+        {"device_id": "aqm-CCBA97047AFC", "name": "Bench", "capabilities": ["co2"], "lan_ip": "192.168.100.57"},
+        {"device_id": "aqm-68B6B3250B0C", "name": "Living Room", "capabilities": [], "lan_ip": None},
+        {"device_id": "aqm-288485392ABC", "name": "Master Bed", "capabilities": []},
+    ]}))
+    devices = run(CloudClient(session, "https://api.example", KEY).async_list_devices())
+    by_id = {d.device_id: d for d in devices}
+    assert by_id["aqm-CCBA97047AFC"].lan_ip == "192.168.100.57"
+    assert by_id["aqm-68B6B3250B0C"].lan_ip is None
+    assert by_id["aqm-288485392ABC"].lan_ip is None, "an older cloud without the field reads as no address"
+
+
+def test_the_address_is_carried_as_sent_and_judged_by_matching_not_here():
+    """api.py imports nothing of ours, so it does not know what a good address
+    is; it trims and passes on. matching.account_announcements decides."""
+    session = FakeSession(FakeResponse(body={"devices": [
+        {"device_id": "aqm-X", "name": "X", "capabilities": [], "lan_ip": " 10.0.0.7 "},
+        {"device_id": "aqm-Y", "name": "Y", "capabilities": [], "lan_ip": 42},
+        {"device_id": "aqm-Z", "name": "Z", "capabilities": [], "lan_ip": "   "},
+    ]}))
+    devices = {d.device_id: d for d in run(CloudClient(session, "https://api.example", KEY).async_list_devices())}
+    assert devices["aqm-X"].lan_ip == "10.0.0.7"
+    assert devices["aqm-Y"].lan_ip is None
+    assert devices["aqm-Z"].lan_ip is None
+
+
+def test_the_plain_dict_for_matching_carries_the_address_too():
+    device = CloudDevice("aqm-X", "Study", ("co2",), lan_ip="10.0.0.7")
+    assert device.as_dict()["lan_ip"] == "10.0.0.7"
+    assert CloudDevice("aqm-X", "Study", ("co2",)).as_dict()["lan_ip"] is None

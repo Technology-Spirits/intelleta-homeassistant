@@ -53,6 +53,24 @@ class IntellettaEntity(CoordinatorEntity):
         )
 
     @property
+    def extra_state_attributes(self) -> dict:
+        """Where this device's readings are coming from right now (card 5).
+
+        `source` is "local" (the device itself, over the home network) or
+        "cloud" (our copy); `local_address` is the address in use and where it
+        came from. ⚠ A diagnostic, not an alarm — the difference between "my
+        air is fine" and "I am looking at a copy because something on my
+        network is broken" is worth being able to see."""
+        state = self.coordinator.source_state(self._device_id)
+        address = self.coordinator.addresses.get(self._device_id)
+        via = getattr(self.coordinator, "address_via", {}).get(self._device_id)
+        return {
+            "source": state.active.value,
+            "local_address": address,
+            "local_address_from": via if address else None,
+        }
+
+    @property
     def available(self) -> bool:
         """⚠ AVAILABLE MEANS "we have heard from this cube", not "this control
         has a confirmed value". A control whose applied value is still unknown

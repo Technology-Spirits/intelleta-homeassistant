@@ -23,6 +23,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .api import AuthFailed, CloudClient, CloudUnavailable, LocalClient
 from .const import API_BASE_URL, DEFAULT_CLOUD_POLL_SECONDS
 from .discovery import apply_to, async_discover
+from .matching import account_announcements
 from .readings import Readings, parse
 from .source_policy import (
     SourceState,
@@ -75,16 +76,24 @@ class IntellettaCoordinator(DataUpdateCoordinator):
         for what exists and what each cube can do (card 93)."""
 
         self.addresses: dict[str, str] = {}
-        """device_id -> local address, for cubes heard announcing themselves AND
-        owned by this account.
+        """device_id -> local address, for devices owned by this account: the
+        address the ACCOUNT holds for the device first (its `lan_ip`, reported
+        by the device itself when it starts), a network sighting second.
 
         ⛔ WRITTEN ONLY BY discovery.apply_to, which asks matching.reconcile.
         Nothing else may put an address in here: the whole security boundary of
         the local path is that an address is trusted because the ACCOUNT lists
-        the cube, never because the network offered one.
+        the device, never because the network offered one — and since card
+        5 the account also supplies the address itself.
 
-        ⚠ Empty on a network where announcement does not work, and that is fine
-        — every cube falls back to the cloud path."""
+        ⚠ On a network where announcement does not work (most home routers drop
+        the multicast group minutes after a device joins) the account's address
+        is the one that reaches the device; a device the account has no address
+        for yet falls back to the cloud path, as before."""
+
+        self.address_via: dict[str, str] = {}
+        """device_id -> "account" | "network": where the address came from. For
+        the entity attribute and the log; never a decision."""
 
         self._sources: dict[str, SourceState] = {}
 
@@ -140,23 +149,26 @@ class IntellettaCoordinator(DataUpdateCoordinator):
         return {k: v for k, v in results.items() if k in self.devices}
 
     async def _async_refresh_addresses(self) -> None:
-        """Ask the network who is there, and keep the ones this account owns.
+        """The account's addresses first, then whoever is announcing; keep the
+        ones this account owns.
 
-        ⚠ BEST EFFORT, ALWAYS. If discovery fails or the network blocks it,
-        every cube simply stays on the cloud path — a house where announcement
-        does not work must still be a house where the product works.
+        ⭐ THE ACCOUNT'S ADDRESS LEADS (card 5). The device told the account
+        where it is when it started; that is handed to reconcile ahead of the
+        network sweep, so the sweep only fills in a device the account has no
+        address for. The sweep stays BEST EFFORT: if it fails or the network
+        blocks it, the account's addresses still stand and anything without one
+        stays on the cloud path — a house where announcement does not work must
+        still be a house where the product works.
         """
+        account_dicts = [device.as_dict() for device in self.devices.values()]
+        candidates = account_announcements(account_dicts)
+
         try:
-            discovered = await async_discover(self.hass)
+            candidates += await async_discover(self.hass)
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("discovery sweep failed: %s", err)
-            return
 
-        apply_to(
-            self,
-            [device.as_dict() for device in self.devices.values()],
-            discovered,
-        )
+        apply_to(self, account_dicts, candidates)
 
     async def _read_one(self, device_id: str, now: float) -> Readings | None:
         state = self.source_state(device_id)

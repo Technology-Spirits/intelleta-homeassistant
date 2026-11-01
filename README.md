@@ -5,9 +5,10 @@ Brings Intelleta air-sensing devices into Home Assistant.
 ## How it works
 
 You sign in once with a key from your Intelleta account. Your devices then appear
-in Home Assistant with the readings each one measures. Readings arrive through
-your Intelleta account; reading a device directly over your own network is
-designed, and not yet live.
+in Home Assistant with the readings each one measures. Readings come straight
+from each device over your own network, at the address your account holds for
+it; when a device cannot be reached that way, they arrive through your Intelleta
+account instead.
 
 ## What this repository is not
 

@@ -56,6 +56,12 @@ class CloudDevice:
     device_type: str = "aqm-cube"
     firmware_version: str | None = None
     last_seen: int = 0
+    lan_ip: str | None = None
+    """The device's home-network address as the ACCOUNT last heard it (the
+    device reports it when it starts; aqm 846, aqm-portal 322). Carried as the
+    cloud sent it, trimmed; whether it is a usable address is matching.py's
+    call (`account_announcements`), not this module's, so this module keeps
+    importing nothing of ours."""
 
     def as_dict(self) -> dict:
         """The shape `matching.reconcile` expects — it takes plain dicts so it
@@ -64,6 +70,7 @@ class CloudDevice:
             "device_id": self.device_id,
             "name": self.name,
             "capabilities": list(self.capabilities),
+            "lan_ip": self.lan_ip,
         }
 
 
@@ -189,6 +196,10 @@ def _parse_device(raw: object) -> CloudDevice | None:
     if isinstance(last_seen, bool) or not isinstance(last_seen, int):
         last_seen = 0
 
+    lan_ip = raw.get("lan_ip")
+    if not isinstance(lan_ip, str) or not lan_ip.strip():
+        lan_ip = None
+
     return CloudDevice(
         device_id=device_id.strip(),
         name=name.strip(),
@@ -196,4 +207,5 @@ def _parse_device(raw: object) -> CloudDevice | None:
         device_type=raw.get("device_type") if isinstance(raw.get("device_type"), str) else "aqm-cube",
         firmware_version=firmware,
         last_seen=last_seen,
+        lan_ip=lan_ip.strip() if lan_ip else None,
     )
