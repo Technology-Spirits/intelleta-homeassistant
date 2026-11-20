@@ -7,9 +7,12 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import CONF_CREDENTIAL, DOMAIN
+from .api import CloudClient
+from .const import API_BASE_URL, CONF_CREDENTIAL, DOMAIN
 from .coordinator import IntellettaCoordinator
+from .share import SharePublisher, async_remove_gate_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,6 +42,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # ── What the customer shares (the "Share with Intelleta" screen) ──
+    #
+    # Checked once now, when the screen is saved, and every minute after; sent
+    # only when something changed. Started after the readings and never
+    # awaited here, so a failure to send cannot cost the customer them.
+    publisher = SharePublisher(
+        hass,
+        entry,
+        CloudClient(async_get_clientsession(hass), API_BASE_URL, entry.data[CONF_CREDENTIAL]),
+    )
+    publisher.start()
+
+    async def _options_saved(_hass: HomeAssistant, _entry: ConfigEntry) -> None:
+        await publisher.async_check()
+
+    entry.async_on_unload(entry.add_update_listener(_options_saved))
     return True
 
 
@@ -48,3 +68,18 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if unloaded:
         hass.data[DOMAIN].pop(entry.entry_id, None)
     return unloaded
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """The integration was removed: its own key pair goes with it.
+
+    Set up again, it makes a new key, which reaches the devices through the
+    account. Kept while another entry still uses it.
+    """
+    remaining = [
+        other
+        for other in hass.config_entries.async_entries(DOMAIN)
+        if other.entry_id != entry.entry_id
+    ]
+    if not remaining:
+        await async_remove_gate_key(hass)

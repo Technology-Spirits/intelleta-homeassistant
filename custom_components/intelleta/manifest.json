@@ -6,6 +6,7 @@
   ],
   "config_flow": true,
   "dependencies": [
+    "network",
     "zeroconf"
   ],
   "documentation": "https://github.com/Technology-Spirits/intelleta-homeassistant",
@@ -16,7 +17,7 @@
     "intelleta"
   ],
   "requirements": [],
-  "version": "0.2.1",
+  "version": "0.3.0",
   "zeroconf": [
     "_intelleta._tcp.local."
   ]

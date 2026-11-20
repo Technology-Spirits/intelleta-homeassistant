@@ -26,6 +26,10 @@ DOMAIN = "intelleta"
 CONF_CREDENTIAL = "credential"
 CONF_ACCOUNT_ID = "account_id"
 
+# Options key: the entity ids the customer shared on the "Share with
+# Intelleta" screen. Empty (absent) until the customer picks something.
+CONF_SHARED = "shared"
+
 # How often the local endpoint is asked, when the cube is reachable on the
 # home network. The cube publishes on its own schedule (30s..5min, settable);
 # asking more often than it measures buys nothing but traffic.

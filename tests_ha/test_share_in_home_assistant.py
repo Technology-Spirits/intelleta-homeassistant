@@ -1,0 +1,196 @@
+"""The share screen and the shared set, inside a real Home Assistant."""
+
+from __future__ import annotations
+
+import base64
+from unittest.mock import patch
+
+from homeassistant.core import HomeAssistant
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.intelleta import share
+from custom_components.intelleta.const import CONF_CREDENTIAL, CONF_SHARED, DOMAIN
+
+KINDS = ["light", "switch", "fan", "cover", "lock", "climate", "media_player", "scene"]
+
+
+def _entry(hass: HomeAssistant, options=None) -> MockConfigEntry:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_CREDENTIAL: "intelleta_test_key"},
+        options=options or {},
+        version=1,
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+async def test_the_share_screen_is_home_assistants_own_multi_pick_list(hass: HomeAssistant):
+    entry = _entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+    (key,) = list(result["data_schema"].schema)
+    assert str(key) == CONF_SHARED
+    assert key.default() == []  # empty by default
+    selector = result["data_schema"].schema[key]
+    assert selector.config["multiple"] is True
+    assert sorted(selector.config["domain"]) == sorted(KINDS)
+
+
+async def test_saving_the_screen_stores_what_was_picked(hass: HomeAssistant):
+    entry = _entry(hass)
+    hass.states.async_set("light.living_lamp", "on", {"friendly_name": "Living lamp"})
+    hass.states.async_set("scene.movie_time", "scening", {"friendly_name": "Movie time"})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_SHARED: ["light.living_lamp", "scene.movie_time"]}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {CONF_SHARED: ["light.living_lamp", "scene.movie_time"]}
+
+
+async def test_the_screen_shows_what_is_already_shared(hass: HomeAssistant):
+    entry = _entry(hass, {CONF_SHARED: ["light.living_lamp"]})
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    (key,) = list(result["data_schema"].schema)
+    assert key.default() == ["light.living_lamp"]
+
+
+async def test_names_and_rooms_come_from_home_assistant(hass: HomeAssistant):
+    areas = ar.async_get(hass)
+    living = areas.async_create("Living room")
+    kitchen = areas.async_create("Kitchen")
+    entry = _entry(hass)
+
+    devices = dr.async_get(hass)
+    plug = devices.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("test", "plug")}, name="Plug"
+    )
+    devices.async_update_device(plug.id, area_id=kitchen.id)
+
+    entities = er.async_get(hass)
+    lamp = entities.async_get_or_create("light", "test", "lamp", suggested_object_id="living_lamp")
+    entities.async_update_entity(lamp.entity_id, area_id=living.id)
+    kettle = entities.async_get_or_create(
+        "switch", "test", "kettle", suggested_object_id="kettle", device_id=plug.id
+    )
+    hass.states.async_set(lamp.entity_id, "on", {"friendly_name": "Living lamp"})
+    hass.states.async_set(kettle.entity_id, "off", {"friendly_name": "Kettle"})
+    hass.states.async_set("scene.movie_time", "scening", {"friendly_name": "Movie time"})
+
+    things = share.collect_things(
+        hass, ["light.living_lamp", "switch.kettle", "scene.movie_time", "light.gone"]
+    )
+    assert things == [
+        {"entity": "light.living_lamp", "name": "Living lamp", "room": "Living room"},
+        {"entity": "switch.kettle", "name": "Kettle", "room": "Kitchen"},
+        {"entity": "scene.movie_time", "name": "Movie time", "room": None},
+    ]
+
+
+async def test_the_gate_key_is_made_once_and_kept(hass: HomeAssistant, hass_storage):
+    first = await share.async_load_gate_key(hass)
+    second = await share.async_load_gate_key(hass)
+    assert first == second
+    assert len(base64.b64decode(first.public_b64)) == 294
+    stored = hass_storage[share.GATE_KEY_STORE]["data"]
+    assert stored["private_key"] == first.private_pem
+
+
+class RecordingCloud:
+    def __init__(self):
+        self.sent = []
+
+    async def async_put_shared(self, body):
+        self.sent.append(body)
+        return {"things": len(body["things"]), "changed": True}
+
+
+async def test_the_set_is_sent_once_then_only_on_a_change(hass: HomeAssistant):
+    entry = _entry(hass, {CONF_SHARED: ["light.living_lamp"]})
+    hass.states.async_set("light.living_lamp", "on", {"friendly_name": "Living lamp"})
+    cloud = RecordingCloud()
+    publisher = share.SharePublisher(hass, entry, cloud)
+
+    with patch(
+        "homeassistant.components.network.async_get_source_ip",
+        return_value="192.168.1.10",
+    ):
+        await publisher.async_check()
+        await publisher.async_check()
+        await publisher.async_check()
+        assert len(cloud.sent) == 1
+        body = cloud.sent[0]
+        assert body["gate"]["addr"] == "192.168.1.10"
+        assert body["gate"]["port"] == 41846
+        assert body["integration_version"] == "0.3.0"
+        assert body["things"] == [
+            {"entity": "light.living_lamp", "name": "Living lamp", "kind": "light", "room": None}
+        ]
+
+        hass.states.async_set("light.living_lamp", "on", {"friendly_name": "Reading lamp"})
+        await publisher.async_check()
+        assert len(cloud.sent) == 2
+        assert cloud.sent[-1]["things"][0]["name"] == "Reading lamp"
+
+        hass.config_entries.async_update_entry(entry, options={CONF_SHARED: []})
+        await publisher.async_check()
+        assert len(cloud.sent) == 3
+        assert cloud.sent[-1]["things"] == []
+
+
+async def test_a_started_integration_sends_once_and_again_when_the_screen_is_saved(
+    hass: HomeAssistant,
+):
+    """The wiring in setup: one send at start, one when the screen is saved,
+    none for a save that changed nothing."""
+    entry = _entry(hass)
+    hass.states.async_set("light.living_lamp", "on", {"friendly_name": "Living lamp"})
+    sent = []
+
+    async def put(self, body):  # noqa: ARG001
+        sent.append(body)
+        return {"things": len(body["things"]), "changed": True}
+
+    async def no_devices(self):  # noqa: ARG001
+        return []
+
+    async def nobody_announcing(hass):  # noqa: ARG001
+        return []
+
+    with (
+        patch("custom_components.intelleta.api.CloudClient.async_put_shared", put),
+        patch("custom_components.intelleta.api.CloudClient.async_list_devices", no_devices),
+        patch("custom_components.intelleta.coordinator.async_discover", nobody_announcing),
+        patch(
+            "homeassistant.components.network.async_get_source_ip",
+            return_value="192.168.1.10",
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert len(sent) == 1
+        assert sent[0]["things"] == []
+
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_SHARED: ["light.living_lamp"]}
+        )
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert len(sent) == 2
+        assert [t["entity"] for t in sent[1]["things"]] == ["light.living_lamp"]
+
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        await hass.config_entries.options.async_configure(
+            result["flow_id"], {CONF_SHARED: ["light.living_lamp"]}
+        )
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert len(sent) == 2
+
+        assert await hass.config_entries.async_unload(entry.entry_id)

@@ -25,5 +25,16 @@
       "already_configured": "This account is already set up.",
       "reauth_successful": "Your new key is in place. Readings resume on their own."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Share with Intelleta",
+        "description": "Choose the lights, switches, scenes and other things to share with Intelleta. In the Intelleta app you then pick up to six on each device for Andy to control. Their names, kinds and rooms are sent to your Intelleta account, and to Google, which runs Andy's voice, so Andy can recognise them.",
+        "data": {
+          "shared": "Shared with Intelleta"
+        }
+      }
+    }
   }
 }

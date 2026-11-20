@@ -49,9 +49,17 @@ class FakeSession:
         self.response = response or FakeResponse()
         self.raises = raises
         self.calls: list[tuple[str, dict]] = []
+        self.bodies: list = []
 
     def get(self, url, headers=None, timeout=None):  # noqa: ARG002
         self.calls.append((url, headers or {}))
+        if self.raises:
+            raise self.raises
+        return self.response
+
+    def put(self, url, json=None, headers=None, timeout=None):  # noqa: A002, ARG002
+        self.calls.append((url, headers or {}))
+        self.bodies.append(json)
         if self.raises:
             raise self.raises
         return self.response
@@ -281,3 +289,52 @@ def test_the_plain_dict_for_matching_carries_the_address_too():
     device = CloudDevice("aqm-X", "Study", ("co2",), lan_ip="10.0.0.7")
     assert device.as_dict()["lan_ip"] == "10.0.0.7"
     assert CloudDevice("aqm-X", "Study", ("co2",)).as_dict()["lan_ip"] is None
+
+
+# ── the shared set (PUT /integration/shared) ────────────────────────────────
+
+SHARED_BODY = {
+    "integration_version": "0.3.0",
+    "gate": {"addr": "192.168.1.10", "port": 41846, "pubkey": "AAAA"},
+    "things": [
+        {"entity": "light.living_lamp", "name": "Living lamp", "kind": "light", "room": "Living room"}
+    ],
+}
+
+
+def test_the_shared_set_is_put_to_the_account_with_the_key_in_the_header():
+    session = FakeSession(FakeResponse(200, {"things": 1, "changed": True}))
+    answer = run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+    assert answer == {"things": 1, "changed": True}
+    url, headers = session.calls[0]
+    assert url == "https://api.example/integration/shared"
+    assert headers["Authorization"] == f"Bearer {KEY}"
+    assert KEY not in url
+    assert session.bodies == [SHARED_BODY]
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_key_on_the_shared_set_is_a_credential_problem(status):
+    session = FakeSession(FakeResponse(status))
+    with pytest.raises(AuthFailed):
+        run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+
+
+@pytest.mark.parametrize("status", [404, 405])
+def test_an_account_without_the_route_says_so_distinctly(status):
+    session = FakeSession(FakeResponse(status))
+    with pytest.raises(api.RouteMissing):
+        run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+
+
+@pytest.mark.parametrize("status", [400, 500, 502, 503])
+def test_a_broken_answer_to_the_shared_set_is_retryable(status):
+    session = FakeSession(FakeResponse(status))
+    with pytest.raises(CloudUnavailable):
+        run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+
+
+def test_a_network_failure_on_the_shared_set_reads_as_unavailable():
+    session = FakeSession(raises=aiohttp.ClientError("boom"))
+    with pytest.raises(CloudUnavailable):
+        run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))

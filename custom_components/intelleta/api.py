@@ -46,6 +46,15 @@ class CloudUnavailable(Exception):
     """Our cloud could not be reached or did not answer sensibly. Retryable."""
 
 
+class RouteMissing(Exception):
+    """The account answered that it has no such route (404 or 405).
+
+    Kept apart from `CloudUnavailable` because retrying it every minute would
+    cost a request a minute in every home and change nothing: the account side
+    of a feature can reach customers later than the integration does.
+    """
+
+
 @dataclass(frozen=True)
 class CloudDevice:
     """One cube as the ACCOUNT describes it. The authority for card 93."""
@@ -131,6 +140,33 @@ class CloudClient:
             for device in (_parse_device(raw) for raw in (body or {}).get("devices", []))
             if device is not None
         ]
+
+
+    async def async_put_shared(self, body: dict) -> dict:
+        """Replace the account's copy of what this home shares.
+
+        The body is `sharing.build_shared_body`'s. The account answers
+        `{"things": <count stored>, "changed": <true|false>}`.
+        """
+        try:
+            async with self._session.put(
+                f"{self._base}/integration/shared",
+                json=body,
+                headers={"Authorization": f"Bearer {self._key}"},
+                timeout=aiohttp.ClientTimeout(total=CLOUD_TIMEOUT_S),
+            ) as response:
+                if response.status in (401, 403):
+                    raise AuthFailed("the key was refused")
+                if response.status in (404, 405):
+                    raise RouteMissing(f"cloud answered {response.status}")
+                if response.status >= 400:
+                    raise CloudUnavailable(f"cloud answered {response.status}")
+                answer = await response.json(content_type=None)
+        except (AuthFailed, RouteMissing):
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            raise CloudUnavailable(str(err)) from err
+        return answer if isinstance(answer, dict) else {}
 
 
 class LocalClient:
