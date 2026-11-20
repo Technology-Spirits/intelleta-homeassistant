@@ -12,6 +12,9 @@ people's homes, updated on their schedule. A fix is not live for a customer unti
 have updated and restarted, so anything the cloud asks of a specific version must allow
 for versions that cannot do it.
 
+Every version gets a numbered GitHub release whose tag matches the manifest's
+version. Without one, HACS shows the customer a commit hash instead of a version.
+
 ## The two-second red check
 
 Continuous integration can fail without running: a job that fails in about two seconds
@@ -32,6 +35,12 @@ by their maintainers on their own timetable. The prepared files are in `brands/`
 Everything a customer reads goes through Raye and Thomas: the install guide, the setup
 screen, every error message in `strings.json`, and the name shown in Home Assistant's
 integration list.
+
+The Intelleta app opens `installing.md` from its "How to install it" link, so the
+guide, the setup screen and the key messages must say what the app says.
+`tests/test_install_guide_words.py` pins the guide's headings, its approved
+sections and rows, and the three key messages word for word. The headings are
+what links point at: rename one only on purpose, and change the test with it.
 
 ## What the customer shares, and the gate's key
 
@@ -149,7 +158,12 @@ A device's list that is not a list of at most six different ids is held as
 empty: that device switches nothing until the account sends one that reads
 whole. The account's copy is not kept across a restart of Home Assistant yet.
 
-A Home Assistant whose clock is wrong refuses every request with `clock`.
+A Home Assistant whose clock is wrong refuses every request with `clock`; the
+install guide's troubleshooting table has a row for it, and one for a Home
+Assistant in a container that cannot hear UDP port 41846. In a container
+without host networking the address reported to the account is the
+container's own, which devices cannot reach, so publishing the port alone is
+not enough: the row asks for host networking.
 
 ## Tests that need a real Home Assistant
 

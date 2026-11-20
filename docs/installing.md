@@ -1,20 +1,26 @@
 # Installing Intelleta in Home Assistant
 
-You need Home Assistant with HACS, an Intelleta account with at least one device, and an internet connection during setup. After setup, Home Assistant reads each device over your own network, so readings keep coming if the internet goes down, with one exception, under [If your internet goes down](#if-your-internet-goes-down).
+You need Home Assistant with HACS, an Intelleta account with at least one device, and an internet connection during setup. HACS (the Home Assistant Community Store) is how Home Assistant installs integrations made outside its own team. No HACS yet? Install it first by following [HACS's own guide](https://hacs.xyz/docs/use/download/download/), then come back here. After setup, Home Assistant reads each device over your own network, so readings keep coming if the internet goes down, with one exception, under [If your internet goes down](#if-your-internet-goes-down).
 
-## 1. Add the integration
+## 1. Install Intelleta from HACS
 
 In HACS, open **Integrations**, then **Custom repositories** from the three-dot menu. Paste `https://github.com/Technology-Spirits/intelleta-homeassistant`, choose **Integration**, and press **Add**. Download **Intelleta**, then restart Home Assistant.
 
-## 2. Mint a key
+## 2. Make a key
 
-In the Intelleta app, go to **Account → Integration keys → Mint a key**. When it asks what will use the key, type a name such as Home Assistant.
+In the Intelleta app, go to **Settings → Home Assistant → Make a key**. There is nothing to type.
 
-Copy the key immediately: it is shown once and never again. If you lose it, mint another and revoke the old one in the same place.
+Copy the key now, or press **Share** to send it to the computer you use for Home Assistant. It is shown once and never again. If you lose it, press **Make a new key** on the same page. The old key stops working.
 
 ## 3. Connect
 
-In Home Assistant, go to **Settings → Devices & services → Add integration**, choose **Intelleta**, and paste the key.
+In Home Assistant, go to **Settings → Devices & services → Add integration**, choose **Intelleta**, and paste the key. The Home Assistant page in the app changes to **Connected** on its own.
+
+## 4. Choose what Andy can control
+
+In Home Assistant, go to **Settings → Devices & services → Intelleta** and press **Configure**. Under **Shared with Intelleta**, use **Choose entity** to add each light, switch, scene or other thing you want to share, then press **Submit**. Only what you add here leaves your home, and only its name, kind and room.
+
+Then, in the Intelleta app, open a device, go to **Voice control**, and pick up to six of them. Say "Hi Andy, turn on" and the name. Want more than six? Make a scene in Home Assistant that does several things at once, and pick the scene.
 
 ## What you get
 
@@ -36,9 +42,13 @@ If Home Assistant starts or restarts while the internet is down, everything is u
 
 | What you see | Why | What to do |
 |---|---|---|
-| The key was not accepted | Part of it was missed when copying, or it was revoked | Paste the whole key again, or mint a new one |
+| The key was not accepted | Part of it was missed when copying, or a newer key replaced it | Paste the whole key again, or make a new one in the Intelleta app |
 | Could not reach Intelleta | No internet, or a short outage, during setup | Try again in a moment |
 | No devices appear | Your account has no device yet | Add a device in the Intelleta app |
 | A device's `source` says `cloud` | Home Assistant cannot reach it on your network. Usually the device and Home Assistant are on different networks (a guest network, a second router), or the device has not restarted since it joined this network | Put them on the same network. If they already are, restart the device: it reports its address each time it starts |
 | Everything is unavailable | Home Assistant started or restarted while the internet was down, so it does not know your devices yet | Nothing. It recovers on its own when the internet returns |
-| Your key is no longer accepted | The key was revoked | Mint a new key in the Intelleta app and paste it where Home Assistant asks. Your devices and their history stay |
+| Your key is no longer accepted | The key was replaced, or Home Assistant was disconnected in the app | Make a new key in the Intelleta app (**Settings → Home Assistant → Make a new key**) and paste it where Home Assistant asks. Your devices and their history stay |
+| Andy says Home Assistant didn't answer | Home Assistant is off, offline, or slow to answer | Check that Home Assistant is on and online. The app's Home Assistant page shows when it was last heard from |
+| Andy always says "Home Assistant didn't answer", but the app shows Home Assistant as Connected | The clock on the computer that runs Home Assistant is wrong by more than 30 seconds. To keep your home safe, Intelleta refuses a request when the device's clock and Home Assistant's clock disagree | Set that computer to take its time from the internet automatically (often called "automatic time" or NTP). Home Assistant OS does this on its own; check it if you run Home Assistant on your own computer. Then ask Andy again |
+| Andy always says "Home Assistant didn't answer", and you run Home Assistant in Docker or another container | Your devices reach Home Assistant on UDP port 41846. The container, or the computer's firewall, does not let that port in | Run the container with host networking (`network_mode: host`), as Home Assistant's own guide recommends. Allow UDP port 41846 through the computer's firewall too. Restart Home Assistant, wait half a minute, then ask Andy again |
+| A thing is missing from the app's list | It is not shared in Home Assistant | Add it under **Intelleta → Configure** |
