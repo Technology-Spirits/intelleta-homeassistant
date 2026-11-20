@@ -147,6 +147,7 @@ async def test_the_set_is_sent_once_then_only_on_a_change(hass: HomeAssistant):
 
 async def test_a_started_integration_sends_once_and_again_when_the_screen_is_saved(
     hass: HomeAssistant,
+    socket_enabled,  # noqa: ARG001 - setup also opens the gate's UDP listener
 ):
     """The wiring in setup: one send at start, one when the screen is saved,
     none for a save that changed nothing."""

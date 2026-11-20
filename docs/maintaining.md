@@ -68,9 +68,93 @@ setting the integration up again makes a new one, which reaches the devices
 through the account. The cryptography package ships with Home Assistant, so the
 manifest's `requirements` stays empty.
 
+## The gate: a device asks to switch a thing
+
+An Intelleta device on the home network asks the integration to switch one
+shared thing. The integration is the only thing that decides; the device's own
+list is a convenience for the voice assistant, never the permission. Nothing
+about an action passes through our cloud. The rules live in `gate.py` (no
+Home Assistant imports, fully tested in `tests/`); `receiver.py` opens the
+listener and is the door into Home Assistant's states and services.
+
+The road. One UDP listener per Home Assistant, on port 41846 (the port sent to
+the account with the shared set). A device sends one signed datagram, three
+times; the integration answers to the request's source address, on port 41846.
+
+The four messages are compact JSON with a fixed field order and no whitespace
+or escapes, at most 1280 bytes, and the signature always last:
+
+    control  device -> gate   v, kind, from, t, id, entity, action, sig
+    taken    gate -> device   v, kind, to, t, id, limit_ms, sig
+    result   gate -> device   v, kind, to, t, id, outcome, sig
+    refused  gate -> device   v, kind, to, t, id, why, sig
+
+A request is read whole and rebuilt; if the rebuilt bytes differ from what
+arrived (an extra field, a field out of order, a space, an escape), it is
+dropped. Signatures are RSASSA-PSS with SHA-256, MGF1 SHA-256 and a 32-byte
+salt, over the label `aqm-home-control/1`, a line feed, and the message up to
+its signature field closed with `}`. The device signs with its own identity
+key; the integration verifies it with the public key the account lists for
+that device (`pubkey` on `GET /integration/devices`). The integration signs
+its answers with its own key pair (the one whose public half goes to the
+account with the shared set). `tests/home-control-vectors.json` holds signed
+examples of each message and the public test keys they verify against.
+
+The checks, in this order, stopping at the first that fails:
+
+1. the shape above; else dropped;
+2. a device the account lists with a usable key; else dropped (no key work);
+3. a repeat: the last 32 requests are kept 60 seconds, and the same bytes
+   again get the same answer again, never a second action; the same id with
+   other bytes is dropped;
+4. the signature; a failure is dropped, logged as a warning, and that device
+   id is ignored for 10 seconds;
+5. for the first 30 seconds after the gate starts: refused, `starting`;
+6. the device's clock within 30 seconds of Home Assistant's, and later than
+   its last request that was taken; else refused, `clock`;
+7. the thing is shared on the "Share with Intelleta" screen; else refused,
+   `not_shared`;
+8. the thing is on the asking device's own list (`control` on
+   `GET /integration/devices`); else refused, `not_on_list`;
+9. the action fits the kind; else refused, `action`;
+10. taken: the integration asks Home Assistant, watches the state, and
+    answers `changed` or `not_changed`.
+
+What each kind is asked, and when it counts as changed:
+
+| Kind | Actions | Service | Changed when the state is |
+|---|---|---|---|
+| light, switch, fan | on / off | turn_on / turn_off | on / off |
+| cover | open / close | open_cover / close_cover | open or opening / closed or closing |
+| lock | lock / unlock | lock / unlock | locked or locking / unlocked or unlocking |
+| climate | on / off | turn_on / turn_off | anything but off / off |
+| media_player | on / off | turn_on / turn_off | anything but off or standby / off or standby |
+| scene | run (or on) | turn_on | Home Assistant ran it |
+
+A lock and a cover are never sent turn_on or turn_off: in Home Assistant's
+generic road, off on a lock means unlock and on opens a cover. A thing already
+in the asked state is changed at once, without a call. The integration watches
+for `CONTROL_LIMIT_MS` (8 seconds, a placeholder until it is measured on a
+bench); a thing that does not get there in time, is unavailable, or whose call
+Home Assistant refuses is `not_changed`, and the log says which.
+
+Every request that is answered gets one log line (at info, under
+`custom_components.intelleta.gate`): the device, the action, the thing and the
+answer. A failed signature is a warning.
+
+Keys and lists come from the readings' own once-a-minute read of
+`GET /integration/devices`. When the account cannot be reached, the last copy
+read stands, so a request is still judged correctly with the internet down.
+A device's list that is not a list of at most six different ids is held as
+empty: that device switches nothing until the account sends one that reads
+whole. The account's copy is not kept across a restart of Home Assistant yet.
+
+A Home Assistant whose clock is wrong refuses every request with `clock`.
+
 ## Tests that need a real Home Assistant
 
-`tests_ha/` checks the share screen as Home Assistant builds it and the reading
+`tests_ha/` checks the share screen as Home Assistant builds it, the gate against
+real states, services and a real UDP round trip on the machine, and the reading
 of names and rooms from its registries. Home Assistant's test harness does not
 run on Windows and is not installed in CI, so run these on Linux. One way that
 works is Home Assistant's own image (it has the compiled packages the harness

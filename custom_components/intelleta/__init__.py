@@ -12,6 +12,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import CloudClient
 from .const import API_BASE_URL, CONF_CREDENTIAL, DOMAIN
 from .coordinator import IntellettaCoordinator
+from .receiver import async_attach_gate
 from .share import SharePublisher, async_remove_gate_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,6 +60,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await publisher.async_check()
 
     entry.async_on_unload(entry.add_update_listener(_options_saved))
+
+    # ── The gate: devices on the home network ask here to switch a thing ──
+    #
+    # It judges each request with the devices' keys and lists the readings'
+    # poll last read from the account, and what the customer shares above.
+    # ⛔ A gate that cannot start must not cost the customer their readings.
+    try:
+        await async_attach_gate(hass, entry, coordinator)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("the home control gate could not start")
     return True
 
 

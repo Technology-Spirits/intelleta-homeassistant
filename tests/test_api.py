@@ -338,3 +338,51 @@ def test_a_network_failure_on_the_shared_set_reads_as_unavailable():
     session = FakeSession(raises=aiohttp.ClientError("boom"))
     with pytest.raises(CloudUnavailable):
         run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+
+
+# ── what the gate needs from the account (each device's key and list) ──────
+
+A2_KEY = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA" + "u" * 348
+
+
+def test_each_device_carries_its_key_and_its_list():
+    session = FakeSession(FakeResponse(body={"devices": [
+        {"device_id": "aqm-A1B2C3D4E5F6", "name": "Kitchen", "capabilities": ["home_control"],
+         "pubkey": A2_KEY, "control": ["light.living_lamp", "scene.movie_time"]},
+    ]}))
+    [device] = run(CloudClient(session, "https://api.invalid", KEY).async_list_devices())
+    assert device.pubkey == A2_KEY
+    assert device.control == ("light.living_lamp", "scene.movie_time")
+
+
+def test_a_device_from_before_these_fields_has_no_key_and_no_list():
+    [device] = run(CloudClient(FakeSession(FakeResponse(body={"devices": [
+        {"device_id": "aqm-A1B2C3D4E5F6", "name": "Kitchen", "capabilities": []},
+    ]})), "https://api.invalid", KEY).async_list_devices())
+    assert device.pubkey is None
+    assert device.control == ()
+
+
+@pytest.mark.parametrize(
+    "pubkey", [None, "", 42, "not base64!", "A" * 393, "<base64 SubjectPublicKeyInfo>"]
+)
+def test_a_key_that_cannot_be_one_is_held_as_none(pubkey):
+    device = api._parse_device({"device_id": "aqm-A1B2C3D4E5F6", "pubkey": pubkey})
+    assert device.pubkey is None
+
+
+@pytest.mark.parametrize(
+    "control",
+    [
+        "light.living_lamp",                                   # not a list
+        ["light.living_lamp", 7],                              # not all text
+        ["Light.Living"],                                      # not an id
+        ["light.a", "light.b", "light.c", "light.d", "light.e", "light.f", "light.g"],  # seven
+        ["light.a", "light.a"],                                # the same thing twice
+    ],
+)
+def test_a_list_out_of_shape_is_held_as_empty_never_cut_short(control):
+    """Fail closed: a list the gate cannot read whole lets that device switch
+    nothing, rather than whatever part of it happened to look right."""
+    device = api._parse_device({"device_id": "aqm-A1B2C3D4E5F6", "control": control})
+    assert device.control == ()

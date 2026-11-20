@@ -14,6 +14,11 @@ reasons, all of which bite:
      everything else from our API — both of them our shapes to keep stable.
 
 See card 87.
+
+The one exception is deliberate: the messages a device sends this integration
+to switch a thing, and its answers, are implemented here (gate.py), because
+this integration is the side that judges them. They are public by design; the
+protection is the two keys, never the format.
 """
 
 DOMAIN = "intelleta"

@@ -18,6 +18,7 @@ again at the next check; it never fails the integration's setup.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import logging
 from dataclasses import dataclass
@@ -55,8 +56,32 @@ class GateKey:
     public_b64: str
 
 
+_GATE_KEY_CACHE = f"{DOMAIN}_gate_key_loaded"
+_GATE_KEY_LOCK = f"{DOMAIN}_gate_key_lock"
+
+
 async def async_load_gate_key(hass: HomeAssistant) -> GateKey:
-    """The integration's key pair: the stored one, or a new one made once."""
+    """The integration's key pair: the stored one, or a new one made once.
+
+    ⛔ ONE LOAD FOR EVERY CALLER. The shared set (which sends the public half)
+    and the gate (which signs with the private half) both ask for it at
+    start. Two callers making a key at the same moment would leave the
+    devices told one key and the answers signed with another, so the first
+    load is shared and kept until the key is removed.
+    """
+    cached = hass.data.get(_GATE_KEY_CACHE)
+    if cached is not None:
+        return cached
+    lock = hass.data.setdefault(_GATE_KEY_LOCK, asyncio.Lock())
+    async with lock:
+        cached = hass.data.get(_GATE_KEY_CACHE)
+        if cached is None:
+            cached = await _async_read_or_make_gate_key(hass)
+            hass.data[_GATE_KEY_CACHE] = cached
+    return cached
+
+
+async def _async_read_or_make_gate_key(hass: HomeAssistant) -> GateKey:
     store: Store = Store(hass, GATE_KEY_STORE_VERSION, GATE_KEY_STORE, private=True)
     stored = await store.async_load()
     pem = stored.get("private_key") if isinstance(stored, dict) else None
@@ -69,6 +94,7 @@ async def async_load_gate_key(hass: HomeAssistant) -> GateKey:
 
 
 async def async_remove_gate_key(hass: HomeAssistant) -> None:
+    hass.data.pop(_GATE_KEY_CACHE, None)
     await Store(hass, GATE_KEY_STORE_VERSION, GATE_KEY_STORE, private=True).async_remove()
 
 
