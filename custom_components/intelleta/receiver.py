@@ -93,6 +93,7 @@ class GateReceiver:
         self._transport: asyncio.DatagramTransport | None = None
         self._retry_unsub: Callable[[], None] | None = None
         self._bind_failure_logged = False
+        self._stopped = False
 
     @property
     def listening(self) -> bool:
@@ -136,6 +137,8 @@ class GateReceiver:
                 lambda: _Listener(self), local_addr=("0.0.0.0", port)
             )
         except OSError as err:
+            if self._stopped:
+                return False
             if not self._bind_failure_logged:
                 _LOGGER.error(
                     "could not listen on UDP port %d (%s); Intelleta devices cannot ask "
@@ -146,6 +149,13 @@ class GateReceiver:
                 self._bind_failure_logged = True
             else:
                 _LOGGER.debug("UDP port %d still cannot be opened (%s)", port, err)
+            return False
+        if self._stopped:
+            # Stopped while the port was being opened (a retry in flight when
+            # the last entry unloaded): a listener kept now would hold the
+            # port with nobody to close it, and the next start could not
+            # open it.
+            transport.close()
             return False
         self._transport = transport
         if self._bind_failure_logged:
@@ -164,7 +174,9 @@ class GateReceiver:
             if self._transport is None and await self.async_start(port):
                 self._cancel_retry()
 
-        self._retry_unsub = async_track_time_interval(self._hass, _retry, BIND_RETRY)
+        self._retry_unsub = async_track_time_interval(
+            self._hass, _retry, BIND_RETRY, cancel_on_shutdown=True
+        )
 
     def _cancel_retry(self) -> None:
         if self._retry_unsub is not None:
@@ -172,6 +184,7 @@ class GateReceiver:
             self._retry_unsub = None
 
     def stop(self) -> None:
+        self._stopped = True
         self._cancel_retry()
         if self._transport is not None:
             self._transport.close()

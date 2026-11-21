@@ -35,3 +35,15 @@ def network_dependencies_as_loaded(hass):
     Nothing here tests them, so they are marked as already set up."""
     hass.config.components.update({"zeroconf", "network"})
     yield
+
+
+@pytest.fixture(autouse=True)
+def gate_port_let_go_after_each_test(hass):
+    """The gate listens on the real UDP port, which outlives one test's Home
+    Assistant. A test that fails before it stops the gate would leave the
+    port taken, and every later test that opens it would fail too. Tests
+    that check the gate closes assert it themselves before this runs."""
+    yield
+    from custom_components.intelleta import receiver
+
+    receiver.stop_gate(hass)

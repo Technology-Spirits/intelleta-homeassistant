@@ -242,11 +242,33 @@ async def test_a_port_that_cannot_be_opened_is_tried_again_and_not_reported(
     finally:
         blocker.close()
 
+    # The minute's retry runs as a background task in Home Assistant.
     async_fire_time_changed(hass, dt_util.utcnow() + receiver.BIND_RETRY + timedelta(seconds=1))
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert receiver.gate_listening(hass)
     receiver.stop_gate(hass)
     assert receiver.GATE_DATA not in hass.data
+
+
+async def test_a_gate_stopped_while_its_port_is_opening_does_not_keep_it(
+    hass: HomeAssistant, socket_enabled  # noqa: ARG001
+):
+    """The last entry unloads while a retry is opening the port: the port
+    must be let go, or the next start finds it taken by nobody."""
+    rx = receiver.GateReceiver(hass, rsa.generate_private_key(public_exponent=65537, key_size=2048))
+    real_open = hass.loop.create_datagram_endpoint
+    opened = []
+
+    async def open_then_stop(*args, **kwargs):
+        transport, protocol = await real_open(*args, **kwargs)
+        opened.append(transport)
+        rx.stop()  # the unload lands while the open is in flight
+        return transport, protocol
+
+    with patch.object(hass.loop, "create_datagram_endpoint", open_then_stop):
+        assert not await rx.async_start(0)
+    assert not rx.listening
+    assert opened and opened[0].is_closing()
 
 
 async def test_removing_the_last_entry_stops_a_gate_that_failed_to_unload(
