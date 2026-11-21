@@ -20,7 +20,7 @@ In Home Assistant, go to **Settings → Devices & services → Add integration**
 
 In Home Assistant, go to **Settings → Devices & services → Intelleta** and press **Configure**. Under **Shared with Intelleta**, use **Choose entity** to add each light, switch, scene or other thing you want to share, then press **Submit**. Only what you add here leaves your home, and only its name, kind and room.
 
-Then, in the Intelleta app, open a device, go to **Voice control**, and pick up to six of them. Say "Hi Andy, turn on" and the name. Want more than six? Make a scene in Home Assistant that does several things at once, and pick the scene.
+Then, in the Intelleta app, open a device, go to **Voice control**, and pick up to six of them. Say "Hi Andy, turn on" and the name. Start every request to switch something with "Hi Andy", even straight after Andy has answered you. Want more than six? Make a scene in Home Assistant that does several things at once, and pick the scene.
 
 ## What you get
 
@@ -50,3 +50,5 @@ If Home Assistant starts or restarts while the internet is down, everything is u
 | Your key is no longer accepted | The key was replaced, or Home Assistant was disconnected in the app | Make a new key in the Intelleta app (**Settings → Home Assistant → Make a new key**) and paste it where Home Assistant asks. Your devices and their history stay |
 | Andy says Home Assistant didn't answer | Home Assistant is off, offline, or slow to answer | Check that Home Assistant is on and online. The app's Home Assistant page shows when it was last heard from |
 | A thing is missing from the app's list | It is not shared in Home Assistant | Add it under **Intelleta → Configure** |
+| Andy always says "Home Assistant didn't answer", but the app shows Home Assistant as Connected | The clock on the computer that runs Home Assistant is wrong by more than 30 seconds. To keep your home safe, Intelleta refuses a request when the device's clock and Home Assistant's clock disagree | Set that computer to take its time from the internet automatically (often called "automatic time" or NTP). Home Assistant OS does this on its own; check it if you run Home Assistant on your own computer. Then ask Andy again |
+| Andy always says "Home Assistant didn't answer", and you run Home Assistant in Docker or another container | Your devices reach Home Assistant on UDP port 41846. The container, or the computer's firewall, does not let that port in | Run the container with host networking (`network_mode: host`), as Home Assistant's own guide recommends, or open the port with `-p 41846:41846/udp`. Allow UDP port 41846 through the computer's firewall too. Restart Home Assistant, wait half a minute, then ask Andy again |

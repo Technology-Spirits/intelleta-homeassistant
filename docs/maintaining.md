@@ -192,9 +192,9 @@ A Home Assistant whose clock is wrong refuses every request with `clock`, and a
 Home Assistant in a container that cannot hear UDP port 41846 never answers. In
 a container without host networking the address reported to the account is the
 container's own, which devices cannot reach, so publishing the port alone is
-not enough: it needs host networking. Rows for both were proposed for the
-install guide's troubleshooting table; they are not in the guide until their
-words are approved.
+not enough: it needs host networking. The install guide's troubleshooting
+table has a row for each, in approved words, pinned by
+`tests/test_install_guide_words.py`.
 
 ## Tests that need a real Home Assistant
 

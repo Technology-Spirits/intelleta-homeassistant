@@ -53,7 +53,9 @@ SECTION_4 = [
     "**Submit**. Only what you add here leaves your home, and only its name, kind "
     "and room.",
     "Then, in the Intelleta app, open a device, go to **Voice control**, and pick "
-    "up to six of them. Say \"Hi Andy, turn on\" and the name. Want more than six? "
+    "up to six of them. Say \"Hi Andy, turn on\" and the name. Start every request "
+    "to switch something with \"Hi Andy\", even straight after Andy has answered "
+    "you. Want more than six? "
     "Make a scene in Home Assistant that does several things at once, and pick the "
     "scene.",
 ]
@@ -81,7 +83,30 @@ ROWS = [
         "It is not shared in Home Assistant",
         "Add it under **Intelleta → Configure**",
     ),
+    (
+        "Andy always says \"Home Assistant didn't answer\", but the app shows Home "
+        "Assistant as Connected",
+        "The clock on the computer that runs Home Assistant is wrong by more than 30 "
+        "seconds. To keep your home safe, Intelleta refuses a request when the "
+        "device's clock and Home Assistant's clock disagree",
+        "Set that computer to take its time from the internet automatically (often "
+        "called \"automatic time\" or NTP). Home Assistant OS does this on its own; "
+        "check it if you run Home Assistant on your own computer. Then ask Andy again",
+    ),
+    (
+        "Andy always says \"Home Assistant didn't answer\", and you run Home "
+        "Assistant in Docker or another container",
+        "Your devices reach Home Assistant on UDP port 41846. The container, or the "
+        "computer's firewall, does not let that port in",
+        "Run the container with host networking (`network_mode: host`), as Home "
+        "Assistant's own guide recommends, or open the port with "
+        "`-p 41846:41846/udp`. Allow UDP port 41846 through the computer's firewall "
+        "too. Restart Home Assistant, wait half a minute, then ask Andy again",
+    ),
 ]
+
+# The home-control rows, in the order the guide shows them after the key rows.
+HOME_CONTROL_ROWS = [row for row in ROWS if "Andy" in row[0] or row[0].startswith("A thing")]
 
 # The headings the app and older links point at. Sections 1 and 2 were renamed
 # on purpose (the card); everything else keeps its anchor.
@@ -179,15 +204,30 @@ def test_the_approved_troubleshooting_rows_are_there_word_for_word():
 
 
 def test_every_home_control_row_is_an_approved_one():
-    """Customer words come only from the ruled words. Rows for a wrong clock
-    and for a container that cannot hear UDP port 41846 were proposed, not
-    ruled, so they wait in docs/maintaining.md for the owner's word, and the
-    guide carries only the approved rows about Andy and Home Assistant."""
+    """Customer words come only from the approved words. The rows for a wrong
+    clock and for a container that cannot hear UDP port 41846 now have approved
+    words, so they stand in the guide word for word, after the other rows about
+    Andy and Home Assistant, and no other row about them may appear."""
     rows = _rows(_guide())
     for row in rows:
         assert len(row) == 3, row
         if "Andy" in row[0] or "41846" in " ".join(row) or "clock" in row[1]:
             assert row in ROWS, row
+    assert rows[-len(HOME_CONTROL_ROWS):] == HOME_CONTROL_ROWS
+
+
+def test_the_guide_says_a_follow_up_needs_hi_andy():
+    """A request to switch something always starts with "Hi Andy", even straight
+    after Andy has answered: one sentence, in step 4 only, right after the
+    example request."""
+    sentence = (
+        "Start every request to switch something with \"Hi Andy\", even straight "
+        "after Andy has answered you."
+    )
+    text = _guide()
+    assert text.count(sentence) == 1
+    step_4 = _section(text, "## 4. Choose what Andy can control")
+    assert "Say \"Hi Andy, turn on\" and the name. " + sentence in step_4
 
 
 def test_nothing_sends_a_person_to_the_old_key_place():
