@@ -141,12 +141,33 @@ def test_a_long_name_up_to_the_stored_bound_is_still_sent():
     {"entity": "Light.A", "name": "A", "room": None},
     {"entity": "light", "name": "A", "room": None},
     {"entity": "light.a b", "name": "A", "room": None},
-    {"entity": "light.a", "name": "bad\x07name", "room": None},
+    {"entity": "light.a\n", "name": "A", "room": None},
+    {"entity": "light." + "a" * 250, "name": "A", "room": None},
+    {"entity": "light.a", "name": "half \ud800 a pair", "room": None},
 ])
 def test_a_thing_the_account_would_refuse_is_left_out_not_sent(bad):
     """One bad thing must not make the account refuse the whole set."""
     body = _body([bad, {"entity": "light.ok", "name": "Ok", "room": None}])
     assert [t["entity"] for t in body["things"]] == ["light.ok"]
+
+
+def test_a_thing_the_account_stores_as_not_pickable_is_still_sent():
+    """The account's page: an entity or a name over 96 bytes, or a name with a
+    control byte, is stored with pickable false, so the app can show it and say
+    it cannot be picked. Left out here, the customer would never see why."""
+    long_id = "light." + "a" * 249
+    assert len(long_id) == 255
+    things = [
+        {"entity": long_id, "name": "Long id", "room": None},
+        {"entity": "light.b", "name": "bad\x07name", "room": None},
+        {"entity": "light.c", "name": "n" * 200, "room": None},
+    ]
+    assert [t["entity"] for t in _body(things)["things"]] == [long_id, "light.b", "light.c"]
+
+
+def test_a_room_that_is_not_well_formed_text_is_sent_as_no_room():
+    body = _body([{"entity": "light.a", "name": "A", "room": "half \udc00"}])
+    assert body["things"][0]["room"] is None
 
 
 def test_a_room_over_its_bound_is_sent_as_no_room():
@@ -189,7 +210,7 @@ class FakeAccount:
 
 def test_it_is_sent_once_at_start():
     account = FakeAccount()
-    sender = sharing.SharedSetSender()
+    sender = _sender()
     assert run(sender.async_push(_body(), account.put)) is True
     assert account.sent == [json.loads(A1_EXAMPLE)]
 
@@ -197,7 +218,7 @@ def test_it_is_sent_once_at_start():
 def test_an_unchanged_set_is_never_sent_again():
     """⛔ THE COST RULE. A minute's check that finds nothing new sends nothing."""
     account = FakeAccount()
-    sender = sharing.SharedSetSender()
+    sender = _sender()
     run(sender.async_push(_body(), account.put))
     for _ in range(10):
         assert run(sender.async_push(_body(), account.put)) is False
@@ -206,7 +227,7 @@ def test_an_unchanged_set_is_never_sent_again():
 
 def test_an_unchanged_set_in_another_order_is_not_sent_again():
     account = FakeAccount()
-    sender = sharing.SharedSetSender()
+    sender = _sender()
     run(sender.async_push(_body(_example_inputs()), account.put))
     run(sender.async_push(_body(list(reversed(_example_inputs()))), account.put))
     assert len(account.sent) == 1
@@ -221,7 +242,7 @@ def test_an_unchanged_set_in_another_order_is_not_sent_again():
 ])
 def test_a_rename_a_new_room_a_removal_a_new_version_or_address_is_sent(change):
     account = FakeAccount()
-    sender = sharing.SharedSetSender()
+    sender = _sender()
     run(sender.async_push(_body(), account.put))
     assert run(sender.async_push(_body(**change), account.put)) is True
     assert len(account.sent) == 2
@@ -229,7 +250,7 @@ def test_a_rename_a_new_room_a_removal_a_new_version_or_address_is_sent(change):
 
 
 def test_a_failed_send_is_tried_again_at_the_next_check():
-    sender = sharing.SharedSetSender()
+    sender = _sender()
     down = FakeAccount(fail_with=RuntimeError("the account is away"))
     with pytest.raises(RuntimeError):
         run(sender.async_push(_body(), down.put))
@@ -238,31 +259,107 @@ def test_a_failed_send_is_tried_again_at_the_next_check():
     assert len(up.sent) == 1
 
 
+class Missing(Exception):
+    """What the caller's account client raises for a route it does not have."""
+
+
+class Rejected(Exception):
+    """What the caller's account client raises for a body it refuses for good."""
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _sender(clock=None):
+    return sharing.SharedSetSender(
+        missing=(Missing,), rejected=(Rejected,), clock=clock or Clock()
+    )
+
+
 def test_a_body_the_account_has_no_route_for_is_not_retried_every_minute():
     """Before the account side exists the route answers 404. Asking again each
     minute would cost a request a minute in every home for nothing."""
-    sender = sharing.SharedSetSender()
-    missing = FakeAccount(fail_with=sharing.RouteMissing("404"))
+    clock = Clock()
+    sender = _sender(clock)
+    missing = FakeAccount(fail_with=Missing("404"))
     assert run(sender.async_push(_body(), missing.put)) is False
     ok = FakeAccount()
+    clock.now += 60
     assert run(sender.async_push(_body(), ok.put)) is False
     assert ok.sent == []
     # ...but a change is tried again.
     assert run(sender.async_push(_body(version="0.3.1"), ok.put)) is True
 
 
+def test_a_route_that_was_missing_is_asked_again_after_an_hour():
+    """The account side can ship after the integration. A home whose set never
+    changes must still reach it, without a restart."""
+    clock = Clock()
+    sender = _sender(clock)
+    run(sender.async_push(_body(), FakeAccount(fail_with=Missing("404")).put))
+    ok = FakeAccount()
+    clock.now += sharing.ROUTE_MISSING_RETRY_S - 1
+    assert run(sender.async_push(_body(), ok.put)) is False
+    clock.now += 1
+    assert run(sender.async_push(_body(), ok.put)) is True
+    assert len(ok.sent) == 1
+    clock.now += sharing.ROUTE_MISSING_RETRY_S * 3
+    assert run(sender.async_push(_body(), ok.put)) is False, "accepted: the cost rule again"
+
+
+def test_the_route_missing_retry_is_hourly():
+    assert sharing.ROUTE_MISSING_RETRY_S == 3600
+
+
+def test_a_body_the_account_rejects_is_not_sent_again_until_it_changes():
+    clock = Clock()
+    sender = _sender(clock)
+    refusing = FakeAccount(fail_with=Rejected("things[0].room"))
+    with pytest.raises(Rejected):
+        run(sender.async_push(_body(), refusing.put))
+    ok = FakeAccount()
+    for _ in range(5):
+        clock.now += sharing.ROUTE_MISSING_RETRY_S
+        assert run(sender.async_push(_body(), ok.put)) is False
+    assert ok.sent == []
+    assert run(sender.async_push(_body(version="0.3.1"), ok.put)) is True
+
+
 def test_a_new_start_sends_again_even_when_nothing_changed():
     """Once per start: a new sender is a new start."""
     account = FakeAccount()
-    run(sharing.SharedSetSender().async_push(_body(), account.put))
-    run(sharing.SharedSetSender().async_push(_body(), account.put))
+    run(_sender().async_push(_body(), account.put))
+    run(_sender().async_push(_body(), account.put))
     assert len(account.sent) == 2
 
 
 def test_the_sender_does_not_keep_a_reference_the_caller_can_change():
     account = FakeAccount()
-    sender = sharing.SharedSetSender()
+    sender = _sender()
     body = _body()
     run(sender.async_push(body, account.put))
     body["things"].append({"entity": "light.x", "name": "X", "kind": "light", "room": None})
     assert run(sender.async_push(_body(), account.put)) is False
+
+
+# ── The address the gate reports ─────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("addr", ["192.168.1.10", "10.0.0.2", "172.16.4.1"])
+def test_a_home_network_address_can_be_reported(addr):
+    assert sharing.gate_address_ok(addr)
+
+
+@pytest.mark.parametrize("addr", [
+    None, "", "not an address", "127.0.0.1", "0.0.0.0", "::1", "fe80::1",
+    "224.0.0.251", "239.255.255.250", "255.255.255.255",
+])
+def test_an_address_the_account_refuses_is_never_reported(addr):
+    """The account refuses a loopback, multicast or broadcast address with a
+    400; reporting one would only cost a refused request."""
+    assert not sharing.gate_address_ok(addr)

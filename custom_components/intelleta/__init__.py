@@ -12,7 +12,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import CloudClient
 from .const import API_BASE_URL, CONF_CREDENTIAL, DOMAIN
 from .coordinator import IntellettaCoordinator
-from .receiver import async_attach_gate
+from .receiver import async_attach_gate, gate_listening, stop_gate
 from .share import SharePublisher, async_remove_gate_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,15 +44,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # ── The gate: devices on the home network ask here to switch a thing ──
+    #
+    # It judges each request with the devices' keys and lists the readings'
+    # poll last read from the account, and what the customer shares below.
+    # Started first, so the first check below finds it listening.
+    # ⛔ A gate that cannot start must not cost the customer their readings.
+    try:
+        await async_attach_gate(hass, entry, coordinator)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("the home control gate could not start")
+
     # ── What the customer shares (the "Share with Intelleta" screen) ──
     #
     # Checked once now, when the screen is saved, and every minute after; sent
-    # only when something changed. Started after the readings and never
-    # awaited here, so a failure to send cannot cost the customer them.
+    # only when something changed, and only while the gate is listening.
+    # Started after the readings and never awaited here, so a failure to send
+    # cannot cost the customer them.
     publisher = SharePublisher(
         hass,
         entry,
         CloudClient(async_get_clientsession(hass), API_BASE_URL, entry.data[CONF_CREDENTIAL]),
+        gate_listening=lambda: gate_listening(hass),
     )
     publisher.start()
 
@@ -60,16 +73,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await publisher.async_check()
 
     entry.async_on_unload(entry.add_update_listener(_options_saved))
-
-    # ── The gate: devices on the home network ask here to switch a thing ──
-    #
-    # It judges each request with the devices' keys and lists the readings'
-    # poll last read from the account, and what the customer shares above.
-    # ⛔ A gate that cannot start must not cost the customer their readings.
-    try:
-        await async_attach_gate(hass, entry, coordinator)
-    except Exception:  # noqa: BLE001
-        _LOGGER.exception("the home control gate could not start")
     return True
 
 
@@ -93,4 +96,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         if other.entry_id != entry.entry_id
     ]
     if not remaining:
+        # A gate still running (its entry failed to unload) would sign with
+        # the removed key while a new one is shared: stopped with its key.
+        stop_gate(hass)
         await async_remove_gate_key(hass)

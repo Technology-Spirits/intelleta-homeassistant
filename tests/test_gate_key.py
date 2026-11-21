@@ -77,3 +77,23 @@ def test_a_stored_record_that_is_not_a_key_is_not_accepted():
     assert gate_key.valid_stored_key("not a key") is False
     assert gate_key.valid_stored_key(None) is False
     assert gate_key.valid_stored_key(gate_key.new_private_key_pem()) is True
+
+
+def test_a_stored_key_is_read_once_for_both_halves():
+    """Start-up reads the stored key once, off Home Assistant's loop, and gets
+    the key to sign with and the public half to share from that one read."""
+    pem = gate_key.new_private_key_pem()
+    private, public = gate_key.usable_key_pair(pem)
+    assert public == gate_key.public_key_b64(pem)
+    assert private.private_numbers() == gate_key.load_private_key(pem).private_numbers()
+
+
+def test_a_stored_key_that_cannot_be_used_reads_as_none():
+    small = rsa.generate_private_key(public_exponent=65537, key_size=1024)
+    small_pem = small.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ).decode("ascii")
+    for stored in (None, 42, "", "not a key", small_pem):
+        assert gate_key.usable_key_pair(stored) is None

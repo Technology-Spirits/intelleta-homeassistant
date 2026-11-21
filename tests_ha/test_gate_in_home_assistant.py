@@ -206,3 +206,59 @@ async def test_setup_opens_the_gate_and_unloading_the_last_entry_closes_it(
 
         assert await hass.config_entries.async_unload(entry.entry_id)
         assert receiver.GATE_DATA not in hass.data
+
+
+async def test_an_account_that_refused_the_key_holds_no_devices_at_the_gate(hass: HomeAssistant):
+    """The customer disconnected Home Assistant in the app: the account
+    refuses the key, and the last list held must not switch anything."""
+    entry = _entry(hass, ["light.living_lamp"])
+    coordinator = _Coordinator({
+        DEVICE: CloudDevice(device_id=DEVICE, name="Kitchen", capabilities=("home_control",),
+                            pubkey=DEVICE_PUB, control=("light.living_lamp",)),
+    })
+    rx = receiver.GateReceiver(hass, rsa.generate_private_key(public_exponent=65537, key_size=2048))
+    rx.add(entry, coordinator)
+    assert rx.lookup(DEVICE) is not None
+    coordinator.key_refused = True
+    assert rx.lookup(DEVICE) is None
+    coordinator.key_refused = False
+    assert rx.lookup(DEVICE) is not None
+
+
+async def test_a_port_that_cannot_be_opened_is_tried_again_and_not_reported(
+    hass: HomeAssistant, socket_enabled  # noqa: ARG001
+):
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    entry = _entry(hass, [])
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    blocker.bind(("0.0.0.0", 41846))
+    try:
+        await receiver.async_attach_gate(hass, entry, _Coordinator({}))
+        assert not receiver.gate_listening(hass)
+    finally:
+        blocker.close()
+
+    async_fire_time_changed(hass, dt_util.utcnow() + receiver.BIND_RETRY + timedelta(seconds=1))
+    await hass.async_block_till_done()
+    assert receiver.gate_listening(hass)
+    receiver.stop_gate(hass)
+    assert receiver.GATE_DATA not in hass.data
+
+
+async def test_removing_the_last_entry_stops_a_gate_that_failed_to_unload(
+    hass: HomeAssistant, socket_enabled  # noqa: ARG001
+):
+    """A gate left running would sign with the removed key while a new one is
+    shared, and every device would reject its answers."""
+    from custom_components.intelleta import async_remove_entry
+
+    entry = _entry(hass, [])
+    await receiver.async_attach_gate(hass, entry, _Coordinator({}))
+    assert receiver.gate_listening(hass)
+    await hass.config_entries.async_remove(entry.entry_id)
+    await async_remove_entry(hass, entry)
+    assert receiver.GATE_DATA not in hass.data

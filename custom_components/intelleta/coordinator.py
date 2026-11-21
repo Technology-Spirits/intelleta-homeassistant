@@ -78,6 +78,11 @@ class IntellettaCoordinator(DataUpdateCoordinator):
         """device_id -> CloudDevice, as the ACCOUNT describes it. The authority
         for what exists and what each cube can do (card 93)."""
 
+        self.key_refused: bool = False
+        """Whether the account refused the key on the last cycle. While it is,
+        the home control gate holds no device of this account: the customer
+        may have disconnected Home Assistant on purpose."""
+
         self.addresses: dict[str, str] = {}
         """device_id -> local address, for devices owned by this account: the
         address the ACCOUNT holds for the device first (its `lan_ip`, reported
@@ -117,6 +122,7 @@ class IntellettaCoordinator(DataUpdateCoordinator):
             # this into the "please re-authenticate" prompt. Treating a revoked
             # key as a transient outage is exactly what produces "it just
             # stopped working" with nothing on screen to explain it.
+            self.key_refused = True
             raise ConfigEntryAuthFailed(str(err)) from err
         except CloudUnavailable as err:
             # ⛔ THE CLOUD BEING AWAY IS NOT THE UPDATE FAILING. Raising here
@@ -129,6 +135,7 @@ class IntellettaCoordinator(DataUpdateCoordinator):
         else:
             fetched = {device.device_id: device for device in devices}
             reason = ""
+            self.key_refused = False
 
         chosen = account_list_for_cycle(self.devices, fetched)
         if chosen is None:

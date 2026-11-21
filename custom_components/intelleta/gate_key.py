@@ -39,28 +39,44 @@ def new_private_key_pem() -> str:
     ).decode("ascii")
 
 
-def _load(private_pem: str) -> rsa.RSAPrivateKey:
+def load_private_key(private_pem: str) -> rsa.RSAPrivateKey:
+    """The key in `private_pem`; ValueError unless it is an RSA-2048 key.
+
+    ⚠ SLOW on a small computer (the key is checked as it is read). Call it off
+    Home Assistant's event loop.
+    """
     key = serialization.load_pem_private_key(private_pem.encode("ascii"), password=None)
     if not isinstance(key, rsa.RSAPrivateKey) or key.key_size != KEY_BITS:
         raise ValueError("not an RSA-2048 key")
     return key
 
 
-def valid_stored_key(private_pem: object) -> bool:
-    """Whether what storage gave back is a key this integration can use."""
-    if not isinstance(private_pem, str):
-        return False
-    try:
-        _load(private_pem)
-    except (ValueError, TypeError):
-        return False
-    return True
-
-
-def public_key_b64(private_pem: str) -> str:
-    """The public half, base64 of the DER SubjectPublicKeyInfo."""
-    der = _load(private_pem).public_key().public_bytes(
+def _public_b64(key: rsa.RSAPrivateKey) -> str:
+    der = key.public_key().public_bytes(
         serialization.Encoding.DER,
         serialization.PublicFormat.SubjectPublicKeyInfo,
     )
     return base64.b64encode(der).decode("ascii")
+
+
+def usable_key_pair(private_pem: object) -> tuple[rsa.RSAPrivateKey, str] | None:
+    """What storage gave back, read once: the key to sign with and its public
+    half (base64 of the DER SubjectPublicKeyInfo), or None when it is not a
+    key this integration can use. ⚠ Slow: call it off the event loop."""
+    if not isinstance(private_pem, str):
+        return None
+    try:
+        key = load_private_key(private_pem)
+    except (ValueError, TypeError):
+        return None
+    return key, _public_b64(key)
+
+
+def valid_stored_key(private_pem: object) -> bool:
+    """Whether what storage gave back is a key this integration can use."""
+    return usable_key_pair(private_pem) is not None
+
+
+def public_key_b64(private_pem: str) -> str:
+    """The public half, base64 of the DER SubjectPublicKeyInfo."""
+    return _public_b64(load_private_key(private_pem))

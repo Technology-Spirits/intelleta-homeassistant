@@ -178,19 +178,16 @@ def test_the_approved_troubleshooting_rows_are_there_word_for_word():
     assert whats.count("Your key is no longer accepted") == 1
 
 
-def test_the_two_rows_the_device_road_needs_are_there():
-    """A wrong clock on the Home Assistant computer refuses every request, and a
-    container without host networking never hears the device. Both look the same
-    to the customer, so each row says how to tell them apart."""
+def test_every_home_control_row_is_an_approved_one():
+    """Customer words come only from the ruled words. Rows for a wrong clock
+    and for a container that cannot hear UDP port 41846 were proposed, not
+    ruled, so they wait in docs/maintaining.md for the owner's word, and the
+    guide carries only the approved rows about Andy and Home Assistant."""
     rows = _rows(_guide())
-    clock = [r for r in rows if "clock" in r[1]]
-    container = [r for r in rows if "container" in r[0]]
-    assert len(clock) == 1 and "30 seconds" in clock[0][1]
-    assert len(container) == 1
-    assert "41846" in container[0][1] and "41846" in container[0][2]
-    assert "network_mode: host" in container[0][2]
     for row in rows:
         assert len(row) == 3, row
+        if "Andy" in row[0] or "41846" in " ".join(row) or "clock" in row[1]:
+            assert row in ROWS, row
 
 
 def test_nothing_sends_a_person_to_the_old_key_place():

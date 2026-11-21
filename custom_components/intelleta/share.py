@@ -19,9 +19,9 @@ again at the next check; it never fails the integration's setup.
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import logging
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from homeassistant.components import network
@@ -37,7 +37,7 @@ from homeassistant.loader import async_get_integration
 
 from . import api, sharing
 from .const import CONF_SHARED, DOMAIN
-from .gate_key import new_private_key_pem, public_key_b64, valid_stored_key
+from .gate_key import new_private_key_pem, usable_key_pair
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +54,8 @@ GATE_KEY_STORE_VERSION = 1
 class GateKey:
     private_pem: str
     public_b64: str
+    # The key to sign with, read once from `private_pem` (off the loop).
+    private_key: object = field(compare=False, repr=False, default=None)
 
 
 _GATE_KEY_CACHE = f"{DOMAIN}_gate_key_loaded"
@@ -82,15 +84,22 @@ async def async_load_gate_key(hass: HomeAssistant) -> GateKey:
 
 
 async def _async_read_or_make_gate_key(hass: HomeAssistant) -> GateKey:
+    """⚠ Reading a key checks it, which is slow on a small computer: every
+    read and every new key runs off the event loop, and each once."""
     store: Store = Store(hass, GATE_KEY_STORE_VERSION, GATE_KEY_STORE, private=True)
     stored = await store.async_load()
     pem = stored.get("private_key") if isinstance(stored, dict) else None
-    if not valid_stored_key(pem):
+    pair = await hass.async_add_executor_job(usable_key_pair, pem)
+    if pair is None:
         if stored is not None:
             _LOGGER.warning("the stored gate key could not be read; making a new one")
         pem = await hass.async_add_executor_job(new_private_key_pem)
         await store.async_save({"private_key": pem})
-    return GateKey(private_pem=pem, public_b64=public_key_b64(pem))
+        pair = await hass.async_add_executor_job(usable_key_pair, pem)
+        if pair is None:  # pragma: no cover - a key just made always reads
+            raise HomeAssistantError("a new gate key could not be read back")
+    private_key, public_b64 = pair
+    return GateKey(private_pem=pem, public_b64=public_b64, private_key=private_key)
 
 
 async def async_remove_gate_key(hass: HomeAssistant) -> None:
@@ -138,25 +147,33 @@ async def async_gate_address(hass: HomeAssistant) -> str | None:
         addr = await network.async_get_source_ip(hass)
     except HomeAssistantError:
         return None
-    try:
-        parsed = ipaddress.ip_address(addr)
-    except ValueError:
-        return None
-    if parsed.version != 4 or parsed.is_loopback or parsed.is_unspecified:
-        return None
-    return addr
+    return addr if sharing.gate_address_ok(addr) else None
 
 
 class SharePublisher:
-    """One per config entry, for one start of the integration."""
+    """One per config entry, for one start of the integration.
+
+    ⛔ THE GATE IS ONLY REPORTED WHILE IT IS LISTENING. The set carries the
+    address and port devices send their requests to; reporting them for a
+    listener that could not open would send every request into the void.
+    `gate_listening` says whether it is; until it is, nothing is sent.
+    """
 
     def __init__(
-        self, hass: HomeAssistant, entry: ConfigEntry, cloud: api.CloudClient
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        cloud: api.CloudClient,
+        *,
+        gate_listening: Callable[[], bool],
     ) -> None:
         self._hass = hass
         self._entry = entry
         self._cloud = cloud
-        self._sender = sharing.SharedSetSender()
+        self._gate_listening = gate_listening
+        self._sender = sharing.SharedSetSender(
+            missing=(api.RouteMissing,), rejected=(api.Rejected,)
+        )
         self._key: GateKey | None = None
         self._version: str | None = None
         self._no_address_logged = False
@@ -173,14 +190,6 @@ class SharePublisher:
     async def _async_tick(self, _now) -> None:  # noqa: ANN001
         await self.async_check()
 
-    async def _async_put(self, body: dict) -> None:
-        try:
-            answer = await self._cloud.async_put_shared(body)
-        except api.RouteMissing as err:
-            _LOGGER.debug("the account has no place for the shared set yet (%s)", err)
-            raise sharing.RouteMissing(str(err)) from err
-        _LOGGER.debug("shared set sent: %s", answer)
-
     async def async_check(self) -> None:
         """Build the set as it is now; send it if it changed."""
         try:
@@ -189,6 +198,10 @@ class SharePublisher:
             if self._version is None:
                 integration = await async_get_integration(self._hass, DOMAIN)
                 self._version = str(integration.version)
+
+            if not self._gate_listening():
+                _LOGGER.debug("the gate is not listening; nothing is reported until it is")
+                return
 
             addr = await async_gate_address(self._hass)
             if addr is None:
@@ -214,12 +227,19 @@ class SharePublisher:
                 gate_pubkey=self._key.public_b64,
                 things=things,
             )
-            if await self._sender.async_push(body, self._async_put):
+            if await self._sender.async_push(body, self._cloud.async_put_shared):
                 _LOGGER.debug("%d shared thing(s) sent to the account", len(body["things"]))
         except api.AuthFailed:
             # The readings' own poll turns a refused key into the reauth
-            # prompt; saying it twice helps nobody.
+            # prompt; saying it twice helps nobody. Not sent again until the
+            # set changes or the integration starts again with a new key.
             _LOGGER.debug("the key was refused while sending the shared set")
+        except api.Rejected as err:
+            _LOGGER.warning(
+                "the account refused what is shared (field: %s); it is sent again "
+                "when something in it changes",
+                err.field or "not named",
+            )
         except api.CloudUnavailable as err:
             _LOGGER.debug("could not send the shared set (%s); trying again", err)
         except Exception:  # noqa: BLE001

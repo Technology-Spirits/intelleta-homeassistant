@@ -327,7 +327,32 @@ def test_an_account_without_the_route_says_so_distinctly(status):
         run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
 
 
-@pytest.mark.parametrize("status", [400, 500, 502, 503])
+def test_a_body_the_account_rejects_says_which_field_and_is_not_an_outage():
+    """400 is the account refusing this body for good. Sending it again every
+    minute would cost a request a minute and get the same answer."""
+    session = FakeSession(FakeResponse(400, {"error": "invalid", "field": "things[0].room"}))
+    with pytest.raises(api.Rejected) as caught:
+        run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+    assert caught.value.field == "things[0].room"
+
+
+def test_a_rejection_with_no_readable_answer_still_reads_as_rejected():
+    session = FakeSession(FakeResponse(400, raises=ValueError("not json")))
+    with pytest.raises(api.Rejected) as caught:
+        run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+    assert caught.value.field is None
+
+
+@pytest.mark.parametrize("status", [401, 403])
+def test_a_refused_key_on_the_shared_set_is_also_a_rejection_of_that_body(status):
+    """The readings' poll asks the customer to sign in again; the shared set
+    must not ask the account again every minute meanwhile."""
+    session = FakeSession(FakeResponse(status))
+    with pytest.raises(api.Rejected):
+        run(CloudClient(session, "https://api.example", KEY).async_put_shared(SHARED_BODY))
+
+
+@pytest.mark.parametrize("status", [500, 502, 503])
 def test_a_broken_answer_to_the_shared_set_is_retryable(status):
     session = FakeSession(FakeResponse(status))
     with pytest.raises(CloudUnavailable):

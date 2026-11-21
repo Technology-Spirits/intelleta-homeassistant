@@ -12,7 +12,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.intelleta import share
+from custom_components.intelleta import api, share
 from custom_components.intelleta.const import CONF_CREDENTIAL, CONF_SHARED, DOMAIN
 
 KINDS = ["light", "switch", "fan", "cover", "lock", "climate", "media_player", "scene"]
@@ -116,7 +116,7 @@ async def test_the_set_is_sent_once_then_only_on_a_change(hass: HomeAssistant):
     entry = _entry(hass, {CONF_SHARED: ["light.living_lamp"]})
     hass.states.async_set("light.living_lamp", "on", {"friendly_name": "Living lamp"})
     cloud = RecordingCloud()
-    publisher = share.SharePublisher(hass, entry, cloud)
+    publisher = share.SharePublisher(hass, entry, cloud, gate_listening=lambda: True)
 
     with patch(
         "homeassistant.components.network.async_get_source_ip",
@@ -195,3 +195,48 @@ async def test_a_started_integration_sends_once_and_again_when_the_screen_is_sav
         assert len(sent) == 2
 
         assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_nothing_is_reported_while_the_gate_is_not_listening(hass: HomeAssistant):
+    """The set carries where devices send their requests. Reported for a
+    listener that could not open, every request would go into the void."""
+    entry = _entry(hass, {CONF_SHARED: ["light.living_lamp"]})
+    hass.states.async_set("light.living_lamp", "on", {"friendly_name": "Living lamp"})
+    cloud = RecordingCloud()
+    listening = [False]
+    publisher = share.SharePublisher(hass, entry, cloud, gate_listening=lambda: listening[0])
+
+    with patch(
+        "homeassistant.components.network.async_get_source_ip",
+        return_value="192.168.1.10",
+    ):
+        await publisher.async_check()
+        assert cloud.sent == []
+        listening[0] = True
+        await publisher.async_check()
+        assert len(cloud.sent) == 1
+
+
+class RefusingCloud:
+    def __init__(self, error):
+        self.error = error
+        self.asked = 0
+
+    async def async_put_shared(self, body):  # noqa: ARG002
+        self.asked += 1
+        raise self.error
+
+
+async def test_a_body_the_account_refuses_is_not_sent_every_minute(hass: HomeAssistant, caplog):
+    entry = _entry(hass, {CONF_SHARED: []})
+    for error in (api.Rejected("cloud answered 400", "gate.addr"), api.SharedKeyRefused("refused")):
+        cloud = RefusingCloud(error)
+        publisher = share.SharePublisher(hass, entry, cloud, gate_listening=lambda: True)
+        with patch(
+            "homeassistant.components.network.async_get_source_ip",
+            return_value="192.168.1.10",
+        ):
+            for _ in range(5):
+                await publisher.async_check()
+        assert cloud.asked == 1
+    assert "gate.addr" in caplog.text

@@ -32,6 +32,7 @@ LOCAL_TIMEOUT_S = 4
 # its identity key and its list of up to six things. Only the outer shape is
 # checked here; whether the key really is an RSA-2048 key is gate.py's call.
 MAX_PUBKEY_CHARS = 392
+MAX_ENTITY_BYTES = 96
 MAX_CONTROL = 6
 _PUBKEY_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}\Z")
 _ENTITY_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+\Z")
@@ -62,6 +63,21 @@ class RouteMissing(Exception):
     cost a request a minute in every home and change nothing: the account side
     of a feature can reach customers later than the integration does.
     """
+
+
+class Rejected(Exception):
+    """The account refused this body for good (400), naming the field when it
+    said which. Sending the same body again would get the same answer."""
+
+    def __init__(self, message: str, field: str | None = None) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+class SharedKeyRefused(AuthFailed, Rejected):
+    """The key was refused on the shared set: a credential problem (the
+    readings' poll asks the customer to sign in again) and, until then, a
+    body not worth sending again."""
 
 
 @dataclass(frozen=True)
@@ -172,17 +188,29 @@ class CloudClient:
                 timeout=aiohttp.ClientTimeout(total=CLOUD_TIMEOUT_S),
             ) as response:
                 if response.status in (401, 403):
-                    raise AuthFailed("the key was refused")
+                    raise SharedKeyRefused("the key was refused")
                 if response.status in (404, 405):
                     raise RouteMissing(f"cloud answered {response.status}")
+                if response.status == 400:
+                    raise Rejected("cloud answered 400", await _rejected_field(response))
                 if response.status >= 400:
                     raise CloudUnavailable(f"cloud answered {response.status}")
                 answer = await response.json(content_type=None)
-        except (AuthFailed, RouteMissing):
+        except (AuthFailed, RouteMissing, Rejected):
             raise
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
             raise CloudUnavailable(str(err)) from err
         return answer if isinstance(answer, dict) else {}
+
+
+async def _rejected_field(response: object) -> str | None:
+    """The field a 400 names (`{"error": "invalid", "field": ...}`), if any."""
+    try:
+        body = await response.json(content_type=None)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        return None
+    field = body.get("field") if isinstance(body, dict) else None
+    return field[:200] if isinstance(field, str) else None
 
 
 class LocalClient:
@@ -281,7 +309,7 @@ def _control(raw: object) -> tuple[str, ...]:
     if not isinstance(raw, list) or len(raw) > MAX_CONTROL:
         return ()
     if not all(
-        isinstance(e, str) and 3 <= len(e.encode("utf-8")) <= 96 and _ENTITY_RE.match(e)
+        isinstance(e, str) and 3 <= len(e.encode("utf-8")) <= MAX_ENTITY_BYTES and _ENTITY_RE.match(e)
         for e in raw
     ):
         return ()
