@@ -14,6 +14,9 @@ for versions that cannot do it.
 
 Every version gets a numbered GitHub release whose tag matches the manifest's
 version. Without one, HACS shows the customer a commit hash instead of a version.
+The release text is written beforehand in `release-notes.md`, under a heading
+that is the tag; `tests/test_release_notes.py` fails if the manifest's version
+has no notes there.
 
 ## The two-second red check
 
