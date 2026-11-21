@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from dataclasses import dataclass
 
 import aiohttp
@@ -26,6 +27,15 @@ _LOGGER = logging.getLogger(__name__)
 # a couple of seconds it is not going to, and a long timeout would hold the
 # poll open and delay the fallback decision (card 95) rather than help.
 LOCAL_TIMEOUT_S = 4
+
+# What the gate needs from the account for each device: the public half of
+# its identity key and its list of up to six things. Only the outer shape is
+# checked here; whether the key really is an RSA-2048 key is gate.py's call.
+MAX_PUBKEY_CHARS = 392
+MAX_ENTITY_BYTES = 96
+MAX_CONTROL = 6
+_PUBKEY_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}\Z")
+_ENTITY_RE = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+\Z")
 
 # Longer, because this one crosses the internet — but still bounded, because a
 # hung setup screen is worse than a failed one.
@@ -46,6 +56,30 @@ class CloudUnavailable(Exception):
     """Our cloud could not be reached or did not answer sensibly. Retryable."""
 
 
+class RouteMissing(Exception):
+    """The account answered that it has no such route (404 or 405).
+
+    Kept apart from `CloudUnavailable` because retrying it every minute would
+    cost a request a minute in every home and change nothing: the account side
+    of a feature can reach customers later than the integration does.
+    """
+
+
+class Rejected(Exception):
+    """The account refused this body for good (400), naming the field when it
+    said which. Sending the same body again would get the same answer."""
+
+    def __init__(self, message: str, field: str | None = None) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+class SharedKeyRefused(AuthFailed, Rejected):
+    """The key was refused on the shared set: a credential problem (the
+    readings' poll asks the customer to sign in again) and, until then, a
+    body not worth sending again."""
+
+
 @dataclass(frozen=True)
 class CloudDevice:
     """One cube as the ACCOUNT describes it. The authority for card 93."""
@@ -62,6 +96,13 @@ class CloudDevice:
     cloud sent it, trimmed; whether it is a usable address is matching.py's
     call (`account_announcements`), not this module's, so this module keeps
     importing nothing of ours."""
+    pubkey: str | None = None
+    """The public half of the device's identity key (base64 DER
+    SubjectPublicKeyInfo), or None when the account holds none. The gate
+    verifies the device's requests with it."""
+    control: tuple[str, ...] = ()
+    """The things this device may ask the gate to switch, by Home Assistant's
+    id, in the customer's order. Empty for a device with no list."""
 
     def as_dict(self) -> dict:
         """The shape `matching.reconcile` expects — it takes plain dicts so it
@@ -133,6 +174,45 @@ class CloudClient:
         ]
 
 
+    async def async_put_shared(self, body: dict) -> dict:
+        """Replace the account's copy of what this home shares.
+
+        The body is `sharing.build_shared_body`'s. The account answers
+        `{"things": <count stored>, "changed": <true|false>}`.
+        """
+        try:
+            async with self._session.put(
+                f"{self._base}/integration/shared",
+                json=body,
+                headers={"Authorization": f"Bearer {self._key}"},
+                timeout=aiohttp.ClientTimeout(total=CLOUD_TIMEOUT_S),
+            ) as response:
+                if response.status in (401, 403):
+                    raise SharedKeyRefused("the key was refused")
+                if response.status in (404, 405):
+                    raise RouteMissing(f"cloud answered {response.status}")
+                if response.status == 400:
+                    raise Rejected("cloud answered 400", await _rejected_field(response))
+                if response.status >= 400:
+                    raise CloudUnavailable(f"cloud answered {response.status}")
+                answer = await response.json(content_type=None)
+        except (AuthFailed, RouteMissing, Rejected):
+            raise
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            raise CloudUnavailable(str(err)) from err
+        return answer if isinstance(answer, dict) else {}
+
+
+async def _rejected_field(response: object) -> str | None:
+    """The field a 400 names (`{"error": "invalid", "field": ...}`), if any."""
+    try:
+        body = await response.json(content_type=None)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+        return None
+    field = body.get("field") if isinstance(body, dict) else None
+    return field[:200] if isinstance(field, str) else None
+
+
 class LocalClient:
     """One cube, on the customer's own network.
 
@@ -201,6 +281,8 @@ def _parse_device(raw: object) -> CloudDevice | None:
         lan_ip = None
 
     return CloudDevice(
+        pubkey=_pubkey(raw.get("pubkey")),
+        control=_control(raw.get("control")),
         device_id=device_id.strip(),
         name=name.strip(),
         capabilities=tuple(c for c in capabilities if isinstance(c, str)),
@@ -209,3 +291,28 @@ def _parse_device(raw: object) -> CloudDevice | None:
         last_seen=last_seen,
         lan_ip=lan_ip.strip() if lan_ip else None,
     )
+
+
+def _pubkey(raw: object) -> str | None:
+    if not isinstance(raw, str) or not 0 < len(raw) <= MAX_PUBKEY_CHARS:
+        return None
+    return raw if _PUBKEY_RE.match(raw) else None
+
+
+def _control(raw: object) -> tuple[str, ...]:
+    """A device's list, whole or not at all.
+
+    ⛔ FAIL CLOSED, NEVER CUT SHORT. A list that is not a list of at most six
+    different ids is held as empty: that device switches nothing until the
+    account sends one the gate can read whole.
+    """
+    if not isinstance(raw, list) or len(raw) > MAX_CONTROL:
+        return ()
+    if not all(
+        isinstance(e, str) and 3 <= len(e.encode("utf-8")) <= MAX_ENTITY_BYTES and _ENTITY_RE.match(e)
+        for e in raw
+    ):
+        return ()
+    if len(set(raw)) != len(raw):
+        return ()
+    return tuple(raw)

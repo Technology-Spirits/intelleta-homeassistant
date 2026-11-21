@@ -14,6 +14,11 @@ reasons, all of which bite:
      everything else from our API — both of them our shapes to keep stable.
 
 See card 87.
+
+The one exception is deliberate: the messages a device sends this integration
+to switch a thing, and its answers, are implemented here (gate.py), because
+this integration is the side that judges them. They are public by design; the
+protection is the two keys, never the format.
 """
 
 DOMAIN = "intelleta"
@@ -25,6 +30,10 @@ DOMAIN = "intelleta"
 # MTronic integration set this precedent and it is not up for revisiting.
 CONF_CREDENTIAL = "credential"
 CONF_ACCOUNT_ID = "account_id"
+
+# Options key: the entity ids the customer shared on the "Share with
+# Intelleta" screen. Empty (absent) until the customer picks something.
+CONF_SHARED = "shared"
 
 # How often the local endpoint is asked, when the cube is reachable on the
 # home network. The cube publishes on its own schedule (30s..5min, settable);

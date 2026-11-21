@@ -25,11 +25,19 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
+from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import AuthFailed, CloudClient, CloudUnavailable
-from .const import API_BASE_URL, CONF_CREDENTIAL, DOMAIN
+from .const import API_BASE_URL, CONF_CREDENTIAL, CONF_SHARED, DOMAIN
+from .sharing import SHAREABLE_KINDS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +48,12 @@ class IntellettaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the Intelleta config flow."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """The "Share with Intelleta" screen, behind Configure."""
+        return IntellettaOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -163,6 +177,41 @@ class IntellettaConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="reauth_confirm", data_schema=STEP_USER_SCHEMA, errors=errors
         )
+
+
+class IntellettaOptionsFlow(OptionsFlow):
+    """Share with Intelleta: the customer picks what leaves the home.
+
+    ⭐ HOME ASSISTANT'S OWN SEARCHABLE MULTI-PICK LIST, the one every other
+    integration uses, so it works in a home with hundreds of things. Limited to
+    the kinds a device can act on (`sharing.SHAREABLE_KINDS`); inside those,
+    nothing is held back because of its kind. The customer chooses.
+
+    ⛔ EMPTY BY DEFAULT. Nothing is shared until the customer picks it.
+
+    Saving the screen stores the list in the entry's options; the update
+    listener in `__init__.py` then sends the new set to the account.
+    """
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            picked = user_input.get(CONF_SHARED) or []
+            return self.async_create_entry(data={CONF_SHARED: list(picked)})
+
+        current = list(self.config_entry.options.get(CONF_SHARED, []))
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_SHARED, default=current): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain=list(SHAREABLE_KINDS),
+                        multiple=True,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)
 
 
 def _account_fingerprint(key: str) -> str:

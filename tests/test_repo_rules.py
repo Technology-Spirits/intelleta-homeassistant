@@ -23,6 +23,11 @@ def test_the_device_wire_contract_is_never_vendored_here():
     cube's local endpoint and everything else from our API.
 
     A rule in a comment gets read once. This gets checked every push.
+
+    The one exception is deliberate and stated in the README: the gate's own
+    messages (gate.py and the contract's test vectors), because this
+    integration is the side that judges them. The test below keeps that
+    statement in place.
     """
     forbidden = {
         "telemetry.schema.json",
@@ -119,3 +124,22 @@ def test_the_installer_file_carries_only_keys_the_installer_accepts():
     hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
     unknown = set(hacs) - allowed
     assert not unknown, f"hacs.json carries keys the installer will reject: {sorted(unknown)}"
+
+
+def test_the_one_exception_to_the_card_87_rule_is_stated_where_people_read():
+    """The gate's messages (gate.py, and the contract's test vectors) are the
+    one part of the device's protocol this repository carries, by design. The
+    README is where a reader looks for what this repository holds, so it says
+    so there, and names the port Home Assistant now listens on."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert (COMPONENT / "gate.py").is_file()
+    assert "never will" not in readme, "the README promises what the gate breaks"
+    assert "gate.py" in readme and "41846" in readme
+
+
+def test_the_installer_offers_it_only_to_a_home_assistant_it_runs_on():
+    """The Share with Intelleta screen reads its entry the way Home Assistant
+    2024.11 and later provide it; an older one would fail on Configure."""
+    hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
+    year, month = (int(part) for part in hacs["homeassistant"].split(".")[:2])
+    assert (year, month) >= (2024, 11)

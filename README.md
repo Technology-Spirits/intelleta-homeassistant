@@ -24,11 +24,19 @@ readings and takes no commands.
 
 ## What this repository is not
 
-⛔ **It does not contain the device's wire protocol, and never will.** It talks
-to our API and to the device's own local endpoint. Copying the device contract in
-would publish the protocol, and would tie software living in customers' homes to
-a contract it cannot be upgraded alongside. There is a test that fails if anyone
-tries.
+⛔ **It does not contain the device's wire protocol.** It talks to our API and
+to the device's own local endpoint. Copying the device contract in would publish
+the protocol, and would tie software living in customers' homes to a contract it
+cannot be upgraded alongside. There is a test that fails if anyone tries.
+
+The one exception is deliberate: the messages a device sends this integration to
+switch a thing, and the integration's answers, are implemented here
+(`custom_components/intelleta/gate.py`, with test vectors in `tests/`), because
+this integration is the side that judges them. For them, Home Assistant listens
+on UDP port 41846 on your network, and acts only on a request signed by one of
+your own devices, for a thing you shared and put on that device's list. The
+format is public by design; the protection is the two keys, never the format.
+[docs/maintaining.md](docs/maintaining.md) has the details.
 
 ## Installing it
 

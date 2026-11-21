@@ -1,0 +1,2 @@
+# Triage 2026-11-21: a made-up stand-in for a public key (repeated letters) in a test. Not a credential.
+37457aa721f2ae5feeecde36090861bbb44ac3ce:tests/test_api.py:generic-api-key:345

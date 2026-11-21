@@ -1,0 +1,37 @@
+{
+ "about": "Test vectors for the home-control messages between a device and this integration (version 1). Every key here is a throw-away TEST key; only the public halves exist. A gate must accept control against device_pubkey; a device must accept taken, result and refused against gate_pubkey. refuse_signature is control changed after signing and must be refused. refuse_wrong_signer is a result signed with the device key instead of the gate key and must be refused by a device. The scheme is RSASSA-PSS, SHA-256, MGF1 with SHA-256, a 32-byte salt, over label followed by the wire bytes up to but not including the sig field, closed with a single closing brace.",
+ "label": "aqm-home-control/1\n",
+ "device_id": "aqm-A1B2C3D4E5F6",
+ "device_pubkey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuoGkvpSyH2tnyxBmI0Dk/h8CRr1dZlHC4zMc5AJu3rZAkD1ZTrP4dYnMRYUMXN6J+PB7Rai+LZakXsaXjIdAO4+TymNvfxtKbciMVoWT84E6/jDagObLcWpHgxAQ2WXioRdlFUkTHeTvMNc3/MDj79R6hEXM9ljSvATpF3FibYEbhw9nuwNX/2YgLdlcthK6sQkNV8ZGrMHCU2aAEHx5eVGC4ZkitVqOb75o5RSJPw+CC6NwrteUR8ni/u2lGR0RLEBg08gfWSkehhVu9cZMUQEqgRPP/+2KJ83ZNa6DQfNcakp0Pmh7asddA72q9s9gSLfk2PIvh9VC+4X5Xh0WowIDAQAB",
+ "gate_pubkey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqUHTnpRhTt5tC501UlzEelHTH2RsZyoxuo0IXtP2pGh/YzXrSFS/W9YiJP6Pklhk6MdaaTWHflCCUF7e5KjxHAgt1qj4VZQlaRzAJoPVEgs+6O6IVvAQhxgUBCJXnDb4bP+APcGgsew8wKoNOqVBxPKgsPIj6DIsShyYXzxPM0lwIjG1XH4XkVRk3Fr/PNjOveV8SF62QCDUks7CFf9agrn7ltBcv6h7do6qQjytbEi2Z+ABHlEk93eotOk3xJmk6B9Uh6bSgX0zXwDnuaRuXvSXRYWU4tO/Y1ryh4ScyMgSLckaHziiyZzwYLJrIIFqlJ4M8tgrbVlq0tcOSvL4/wIDAQAB",
+ "messages": [
+  {
+   "name": "control",
+   "signed_by": "device",
+   "wire": "{\"v\":1,\"kind\":\"control\",\"from\":\"aqm-A1B2C3D4E5F6\",\"t\":1763658000000,\"id\":\"000102030405060708090a0b0c0d0e0f\",\"entity\":\"light.living_lamp\",\"action\":\"on\",\"sig\":\"LkhIwHMM4wd2KNlJE56D19J8Dc6zpwGmORKgQ02jUBZArKaz158MI5ZKOYXlolOqSSlBuGmUbuBRoI2/YGTsdNsxcFnFAvWBxelb1W4jIWiKWqpq2xllMLnrSP26700lI52itN8PNaql8S7hdq2sb9xus/X5a4wF/Aw103jeXIPIQ1r9EWLcZGWl4eJObYdQEJRjWrod69kzbmYeeVdGQxQbyfpYc67r2RhctJ0XdBXY6Pm1GHlbOBqnJNW5QKDMVC3Z0gJHjOjVqfnNPr7gE8wYLUB7ZIr1FckWoIugGCGRulVzWr1+iw6S4BsOEYu/sVW8zilYNut9bkrhVV6z+w==\"}"
+  },
+  {
+   "name": "taken",
+   "signed_by": "gate",
+   "wire": "{\"v\":1,\"kind\":\"taken\",\"to\":\"aqm-A1B2C3D4E5F6\",\"t\":1763658000040,\"id\":\"000102030405060708090a0b0c0d0e0f\",\"limit_ms\":8000,\"sig\":\"BEzbhcfVIszvSnSWERn1GvTS/MdLvtbybMHjLS47iuqt0lJZpxUciTTkB6iQLf9DXXx3brj370wOFa1ovMGEyo/vvr1Bdig210wdYrAsMB4ofowxXOcBTCRZzr5xLzNCGbbEXcum5On4t0ISJSmf/gS7z3EbP7fqkE6BHSqM2HKIiCfxwc44mFOUBfDVFkFBFRr0MrUWWorBUA8LVt5unz75pE5MRU7CzCfPCAA7VUb5P7r5HFQ+LOFN6LT84VtY0b9EtB6TJA2qi3/Q/fm5ZXmRW+nUxX2/RXcxCrVpvN2v2HVh5WVtHBR/JnxLJCa1aWwLBnz5o03w/iAuWjJk4Q==\"}"
+  },
+  {
+   "name": "result",
+   "signed_by": "gate",
+   "wire": "{\"v\":1,\"kind\":\"result\",\"to\":\"aqm-A1B2C3D4E5F6\",\"t\":1763658000900,\"id\":\"000102030405060708090a0b0c0d0e0f\",\"outcome\":\"changed\",\"sig\":\"BMZME/T3qCPOAJ2YkgEYEs36Pl02ORm9+Z2pWc7xao/hgfVK1RFslzWJL3Ib8E1F4a9C/FWHXm48OdbqcT97/BVp30930Ufuur/cqCcNECfOAytizKtwV7IeYzbKHg5KVjeTQCZ28LPNGdYiuc5dXohJIYDc3Mywz8sOvt2/kmQiaJ1gt9wZfGJe0CMjruD34dg3xWr6cJJbCiOUZMEyQO+/lGbCfK7dgaiqUclkCnmzasfOXT3gb165sNJzoX3bkes3KpMJUSTlN3T62g/XWb/lK2npnnp24e2fFzcGFJp+YZw37wCkJ/c/VIenGAABeokx4LtT2b/604qnolN75w==\"}"
+  },
+  {
+   "name": "refused",
+   "signed_by": "gate",
+   "wire": "{\"v\":1,\"kind\":\"refused\",\"to\":\"aqm-A1B2C3D4E5F6\",\"t\":1763658000040,\"id\":\"000102030405060708090a0b0c0d0e0f\",\"why\":\"not_on_list\",\"sig\":\"W620cn1/pNL4B+R1O3EY9ZE7MrQFwfugCAaUXuKsDrC36P4OiPvTJSkvtKoM8t09vX6gcAXuWeOHsnDKfrGzdac31rmBVPTd+wrWSnF6Bh5tTpYrA7n5MNcSIU66Q0eJPvCJWu8mmpanE/9ISlmdm4zCKT2aogehoxBNxI2gZfQyf9XrXQBkJODVzRxwfb8DRBllYzFWJ3vFdbc+U57BfCfvTiErJV3xYH4h1GNxdvoZAbQgzL/FfM73FHjmKMJSHk9THxGQNYG8r/miJOddhVJg9HXZUIV+M0zbX3saO8K5bg6w14tUZURrk0cd6fhzHXJ8jz6tW0mqtm2nkmP1Rg==\"}"
+  }
+ ],
+ "refuse_signature": "{\"v\":1,\"kind\":\"control\",\"from\":\"aqm-A1B2C3D4E5F6\",\"t\":1763658000000,\"id\":\"000102030405060708090a0b0c0d0e0f\",\"entity\":\"lock.front_door\",\"action\":\"on\",\"sig\":\"LkhIwHMM4wd2KNlJE56D19J8Dc6zpwGmORKgQ02jUBZArKaz158MI5ZKOYXlolOqSSlBuGmUbuBRoI2/YGTsdNsxcFnFAvWBxelb1W4jIWiKWqpq2xllMLnrSP26700lI52itN8PNaql8S7hdq2sb9xus/X5a4wF/Aw103jeXIPIQ1r9EWLcZGWl4eJObYdQEJRjWrod69kzbmYeeVdGQxQbyfpYc67r2RhctJ0XdBXY6Pm1GHlbOBqnJNW5QKDMVC3Z0gJHjOjVqfnNPr7gE8wYLUB7ZIr1FckWoIugGCGRulVzWr1+iw6S4BsOEYu/sVW8zilYNut9bkrhVV6z+w==\"}",
+ "refuse_wrong_signer": "{\"v\":1,\"kind\":\"result\",\"to\":\"aqm-A1B2C3D4E5F6\",\"t\":1763658000900,\"id\":\"000102030405060708090a0b0c0d0e0f\",\"outcome\":\"changed\",\"sig\":\"C0ZwwQTuTMBEpm/XxT0F/A/8ECroDznGbT6sAYQ7Q+sVO8wYtcQwl42/srkl9vPnltt4YQHi3ATP/lpJiQlZU+vwh3Kw+1RO6XJyD8NmTmCmyzmm0MOhaUz+fYeCNW7jhnhfIvvwmJuiVoGqQ50lwzk8zY84LPMS1rn2s3EExnffSIbPXjVsNHsrXn2NqaeMxozW0qo/KSg8STvoQn8Hzy8McBicq1wQRldhD++SJPohwjqVYd2KqIsG1c9NRLE5u8bJwEpfhTxagifzfMojMQBQW2ooMBzV9iUs+fn6hY6fuxX522DQAlvBKdjpcDF5JCpa2lHZE1slcQ97aXWn4A==\"}",
+ "largest_legal_sizes": {
+  "control": 587,
+  "taken": 474,
+  "result": 482,
+  "refused": 479
+ }
+}
