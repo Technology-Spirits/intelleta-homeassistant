@@ -18,6 +18,11 @@ The release text is written beforehand in `release-notes.md`, under a heading
 that is the tag; `tests/test_release_notes.py` fails if the manifest's version
 has no notes there.
 
+`hacs.json` names the oldest Home Assistant it runs on (`homeassistant`), so
+HACS does not offer it to an older one. It is 2024.11: the "Share with
+Intelleta" screen reads its entry the way Home Assistant provides it from that
+version on. Raise it in the same change that starts using something newer.
+
 ## The two-second red check
 
 Continuous integration can fail without running: a job that fails in about two seconds
@@ -67,11 +72,26 @@ What leaves the home, in `PUT /integration/shared` on the account (`share.py`,
 When it is sent: once at each start, when the screen is saved, and at the
 once-a-minute check, but only if the body differs from the last one the account
 accepted. An unchanged set is never sent again; `tests/test_sharing.py` proves
-it. A failed send is tried at the next check. If the account answers 404 (its
-side not deployed yet) that body is not retried until something changes, so a
-home does not cost a request a minute for nothing. Things the account would
-refuse (a bad id, an empty or over-long name) are left out rather than making it
-refuse the whole set.
+it. What the account answers decides the rest:
+
+- an outage (no answer, or a 5xx): tried again at the next check;
+- 404 or 405 (its side not deployed yet): not tried again until something
+  changes, or an hour has passed, so a home does not cost a request a minute
+  for nothing and still reaches the account once it has the route;
+- 400 (it refuses this body): logged as a warning naming the field it gave, and
+  not tried again until something changes;
+- 401 or 403 (the key was refused): not tried again until something changes;
+  the readings' poll asks the customer to sign in again, which starts the
+  integration again with the new key.
+
+Things the account would refuse outright (a bad id, an id over 255 bytes, an
+empty or over-long name, text that is not well formed) are left out rather than
+making it refuse the whole set. A thing it stores as not pickable (an id or a
+name over 96 bytes, a name with a control character) is sent, so the app can
+show it and say it cannot be picked.
+
+Nothing is sent while the gate is not listening (below): the set carries the
+address and port devices send their requests to.
 
 The integration's key pair is RSA-2048, made once and kept in Home Assistant's
 own storage (`.storage/intelleta.gate_key`, written private). The private half
@@ -92,6 +112,8 @@ listener and is the door into Home Assistant's states and services.
 The road. One UDP listener per Home Assistant, on port 41846 (the port sent to
 the account with the shared set). A device sends one signed datagram, three
 times; the integration answers to the request's source address, on port 41846.
+If the port cannot be opened, the error is logged once, the port is tried again
+every minute, and the shared set is not sent until it opens.
 
 The four messages are compact JSON with a fixed field order and no whitespace
 or escapes, at most 1280 bytes, and the signature always last:
@@ -116,9 +138,11 @@ The checks, in this order, stopping at the first that fails:
 
 1. the shape above; else dropped;
 2. a device the account lists with a usable key; else dropped (no key work);
-3. a repeat: the last 32 requests are kept 60 seconds, and the same bytes
-   again get the same answer again, never a second action; the same id with
-   other bytes is dropped;
+3. a repeat: the last 32 requests are kept 60 seconds, each known by its
+   device and its id, and the same bytes again get the same answer again,
+   never a second action; the same id with other bytes is dropped. A request
+   still being acted on is never pushed out, and a request refused for its
+   clock is not kept, so recordings played back cannot push a real request out;
 4. the signature; a failure is dropped, logged as a warning, and that device
    id is ignored for 10 seconds;
 5. for the first 30 seconds after the gate starts: refused, `starting`;
@@ -159,14 +183,18 @@ Keys and lists come from the readings' own once-a-minute read of
 read stands, so a request is still judged correctly with the internet down.
 A device's list that is not a list of at most six different ids is held as
 empty: that device switches nothing until the account sends one that reads
-whole. The account's copy is not kept across a restart of Home Assistant yet.
+whole. When the account refuses the key, the gate holds no device of that
+account until a poll succeeds again: the customer may have disconnected Home
+Assistant on purpose. The account's copy is not kept across a restart of Home
+Assistant yet.
 
-A Home Assistant whose clock is wrong refuses every request with `clock`; the
-install guide's troubleshooting table has a row for it, and one for a Home
-Assistant in a container that cannot hear UDP port 41846. In a container
-without host networking the address reported to the account is the
+A Home Assistant whose clock is wrong refuses every request with `clock`, and a
+Home Assistant in a container that cannot hear UDP port 41846 never answers. In
+a container without host networking the address reported to the account is the
 container's own, which devices cannot reach, so publishing the port alone is
-not enough: the row asks for host networking.
+not enough: it needs host networking. Rows for both were proposed for the
+install guide's troubleshooting table; they are not in the guide until their
+words are approved.
 
 ## Tests that need a real Home Assistant
 
