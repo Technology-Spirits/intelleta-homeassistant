@@ -496,3 +496,109 @@ def test_the_shapes_page_placeholder_key_holds_no_key():
     device = api._parse_device(json.loads(A2_EXAMPLE))
     assert device.pubkey is None
     assert gate.device_record(device.pubkey, device.control, SHARED) is None
+
+
+# ── found in review ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("data", [
+    b"[1]",
+    b"[[1,2,3]]",
+    b"[[\"v\"]]",
+    b"[]",
+    b"[" * 1279 + b"]",
+    b"[" * 600 + b"]" * 600,
+])
+def test_json_that_is_not_an_object_is_dropped_never_raised(data):
+    """Anyone on the home network can send these. Each must be dropped
+    quietly, never become an error in Home Assistant's log."""
+    assert gate.parse_control(data) is None
+    h = Harness()
+    h.handle(data)
+    assert h.sent == [] and h.acted == []
+
+
+def test_one_devices_id_cannot_shadow_another_devices_request():
+    """The answer memory is each device's own: the kitchen device reusing the
+    bedroom device's id (ids travel in the clear) does not silence it."""
+    h = Harness()
+    h.handle(control(KITCHEN, id="5a" * 16, entity="light.living_lamp"))
+    h.sent.clear()
+    h.handle(control(BEDROOM, id="5a" * 16, entity="light.floor"))
+    assert h.answers()[0]["kind"] == "taken"
+    assert h.answers()[0]["to"] == BEDROOM
+
+
+def test_a_request_still_being_acted_on_is_never_pushed_out_of_memory():
+    """Its repeat must be answered from memory, not judged again (and refused
+    `clock`) while the thing really switches."""
+    h = Harness()
+    request = control(id="77" * 16, t=h.clock.wall)
+    release = asyncio.Event()
+
+    async def slow_act(*args):
+        h.acted.append(args)
+        await release.wait()
+        return ("changed", "reached on")
+
+    h.gate._act = slow_act
+
+    async def scenario():
+        first = asyncio.create_task(h.gate.handle(request, SOURCE))
+        await asyncio.sleep(0)
+        # 32 more requests the gate remembers: refused, each with a new id.
+        for n in range(gate.MEMORY_SIZE):
+            await h.gate.handle(
+                control(id="%032x" % (n + 1), t=h.clock.wall + n + 1, entity="light.floor"),
+                SOURCE,
+            )
+        release.set()
+        await first
+        h.sent.clear()
+        await h.gate.handle(request, SOURCE)
+
+    asyncio.run(scenario())
+    [again] = h.answers()
+    assert again["kind"] == "result" and again["outcome"] == "changed"
+    assert len(h.acted) == 1
+
+
+def test_recordings_refused_by_the_clock_do_not_push_real_requests_out_of_memory():
+    """A neighbour replaying 32 old signed requests must not make the gate
+    forget a request it took a moment ago."""
+    h = Harness()
+    request = control(id="88" * 16, t=h.clock.wall)
+    h.handle(request)
+    for n in range(gate.MEMORY_SIZE):
+        h.handle(control(id="%032x" % (n + 100), t=h.clock.wall - 60_000))
+    h.sent.clear()
+    h.handle(request)
+    [again] = h.answers()
+    assert again["kind"] == "result"
+    assert len(h.acted) == 1
+
+
+def test_junk_is_screened_without_starting_any_work():
+    """The listener screens each datagram as it arrives and starts work only
+    for a well-formed request from a device the gate holds a key for."""
+    h = Harness()
+    assert h.gate.screen(b"junk", SOURCE) is None
+    assert h.gate.screen(control("aqm-FFFFFFFFFFFF", key=STRANGER_KEY), SOURCE) is None
+    req = h.gate.screen(control(), SOURCE)
+    assert req is not None
+    asyncio.run(h.gate.handle_request(*req, SOURCE))
+    assert h.answers()[0]["kind"] == "taken"
+
+
+def test_the_gate_agrees_with_the_rest_of_the_integration():
+    """The same facts are written where each module needs them (each loads on
+    its own); this keeps them from drifting apart."""
+    sharing = load("sharing")
+    gate_key = load("gate_key")
+    assert gate.DEVICE_PORT == sharing.GATE_UDP_PORT
+    assert set(gate._SERVICES) == set(sharing.SHAREABLE_KINDS), (
+        "a kind the customer can share but the gate cannot act on, or the other way"
+    )
+    assert gate.KEY_BITS == gate_key.KEY_BITS
+    assert gate.MAX_PUBKEY_CHARS == api.MAX_PUBKEY_CHARS
+    assert gate.MAX_ENTITY_BYTES == api.MAX_ENTITY_BYTES == 96

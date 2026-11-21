@@ -72,7 +72,10 @@ STARTING_S = 30
 
 # The answer memory: the last 32 requests, each kept 60 seconds. A repeat of a
 # request in it is answered with its latest answer, byte for byte, and never
-# acted on twice.
+# acted on twice. It is kept per device (a request is known by its device and
+# its id), a request still being acted on is never pushed out, and a request
+# refused for its clock is not kept (a recording played back is refused by
+# the clock every time, so it can never push a real request out).
 MEMORY_SIZE = 32
 MEMORY_S = 60
 
@@ -86,16 +89,17 @@ SIGNATURE_BACKOFF_S = 10
 # nothing.
 RESULT_SENDS_MS = (0, 60, 180)
 
-# The datagram limit, and the port a device listens on for the answer.
+# The datagram limit, and the port a device listens on for the answer (the
+# same port the gate listens on; a test holds the two equal).
 MAX_DATAGRAM = 1280
 DEVICE_PORT = 41846
 
 LABEL = b"aqm-home-control/1\n"
 
-KINDS = ("light", "switch", "fan", "cover", "lock", "climate", "media_player", "scene")
+# The kinds are the keys of `_SERVICES` below; a test holds them equal to the
+# kinds a customer can share.
 ACTIONS = ("on", "off", "open", "close", "lock", "unlock", "run")
 OUTCOMES = ("changed", "not_changed")
-WHYS = ("not_shared", "not_on_list", "action", "clock", "starting")
 
 _FIELDS = {
     "control": ("v", "kind", "from", "t", "id", "entity", "action", "sig"),
@@ -111,8 +115,13 @@ _SIG_RE = re.compile(r"^[A-Za-z0-9+/]{342}==\Z")
 _SIG_MARK = b',"sig":"'
 
 _PSS = padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=32)
-_KEY_BITS = 2048
-_MAX_PUBKEY_CHARS = 392
+
+# Facts the account's client (api.py) and the key module (gate_key.py) also
+# hold. Each module loads on its own, so they are written here too, and a test
+# holds them equal.
+KEY_BITS = 2048
+MAX_PUBKEY_CHARS = 392
+MAX_ENTITY_BYTES = 96
 
 
 # ── The wire: canonical form and signatures ────────────────────────────────
@@ -198,14 +207,14 @@ def sign_answer(private_key: rsa.RSAPrivateKey, kind: str, **fields: object) -> 
 @functools.lru_cache(maxsize=64)
 def load_public_key(b64: str | None) -> rsa.RSAPublicKey | None:
     """An RSA-2048 public key from base64 DER SubjectPublicKeyInfo, else None."""
-    if not isinstance(b64, str) or not 0 < len(b64) <= _MAX_PUBKEY_CHARS:
+    if not isinstance(b64, str) or not 0 < len(b64) <= MAX_PUBKEY_CHARS:
         return None
     try:
         der = base64.b64decode(b64, validate=True)
         key = serialization.load_der_public_key(der)
     except (binascii.Error, ValueError, TypeError):
         return None
-    if not isinstance(key, rsa.RSAPublicKey) or key.key_size != _KEY_BITS:
+    if not isinstance(key, rsa.RSAPublicKey) or key.key_size != KEY_BITS:
         return None
     return key
 
@@ -224,11 +233,16 @@ class Control:
     raw: bytes
 
 
-def _no_duplicates(pairs: list) -> list:
+class _Fields(list):
+    """A JSON object's fields, in the order they came. Only an object reads
+    as one: a top-level array of anything is not a message."""
+
+
+def _no_duplicates(pairs: list) -> _Fields:
     keys = [k for k, _ in pairs]
     if len(set(keys)) != len(keys):
         raise ValueError("a field given twice")
-    return pairs
+    return _Fields(pairs)
 
 
 def _is_int(v: object) -> bool:
@@ -248,9 +262,9 @@ def parse_control(data: bytes) -> Control | None:
     data = bytes(data)
     try:
         pairs = json.loads(data.decode("utf-8"), object_pairs_hook=_no_duplicates)
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         return None
-    if not isinstance(pairs, list) or [k for k, _ in pairs] != list(_FIELDS["control"]):
+    if not isinstance(pairs, _Fields) or [k for k, _ in pairs] != list(_FIELDS["control"]):
         return None
     f = dict(pairs)
 
@@ -262,7 +276,7 @@ def parse_control(data: bytes) -> Control | None:
         and _is_int(f["t"]) and 10**12 <= f["t"] < 10**13
         and isinstance(f["id"], str) and _ID_RE.match(f["id"])
         and isinstance(entity, str) and _ENTITY_RE.match(entity)
-        and 3 <= len(entity.encode("utf-8")) <= 96
+        and 3 <= len(entity.encode("utf-8")) <= MAX_ENTITY_BYTES
         and f["action"] in ACTIONS
         and isinstance(sig, str) and _SIG_RE.match(sig)
     ):
@@ -415,7 +429,7 @@ def device_record(
     return DeviceRecord(key=key, control=frozenset(control), shared=frozenset(shared))
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Remembered:
     request: bytes
     answer: bytes
@@ -462,23 +476,33 @@ class Gate:
         self._limit_ms = limit_ms
         self._log = log
         self._started = mono()
-        self._memory: OrderedDict[str, _Remembered] = OrderedDict()
+        # Known by (device, id): one device's id never shadows another's.
+        self._memory: OrderedDict[tuple[str, str], _Remembered] = OrderedDict()
+        self._acting: set[tuple[str, str]] = set()
         self._last_t: dict[str, int] = {}
         self._backoff_until: dict[str, float] = {}
 
     # The memory ------------------------------------------------------------
 
     def _forget_old(self, now: float) -> None:
-        while self._memory:
-            first = next(iter(self._memory.values()))
-            if now - first.at < MEMORY_S:
-                break
-            self._memory.popitem(last=False)
+        for key, kept in list(self._memory.items()):
+            if now - kept.at >= MEMORY_S and key not in self._acting:
+                del self._memory[key]
 
-    def _remember(self, req: Control, answer: bytes, now: float) -> None:
+    def _remember(self, req: Control, answer: bytes, at: float) -> None:
+        key = (req.device, req.id)
+        if key in self._memory:
+            # A later answer to the same request: replaced where it stands.
+            self._memory[key] = _Remembered(req.raw, answer, at)
+            return
         while len(self._memory) >= MEMORY_SIZE:
-            self._memory.popitem(last=False)
-        self._memory[req.id] = _Remembered(req.raw, answer, now)
+            # The oldest one not still being acted on. With every slot busy
+            # (32 actions at once) the memory grows rather than forget one.
+            oldest = next((k for k in self._memory if k not in self._acting), None)
+            if oldest is None:
+                break
+            del self._memory[oldest]
+        self._memory[key] = _Remembered(req.raw, answer, at)
 
     # Answers ---------------------------------------------------------------
 
@@ -487,7 +511,8 @@ class Gate:
 
     def _refuse(self, req: Control, why: str, addr: tuple, now: float) -> None:
         answer = self._answer("refused", req, why=why)
-        self._remember(req, answer, now)
+        if why != "clock":
+            self._remember(req, answer, now)
         self._send(answer, addr)
         self._log.info(
             "home control: %s asked %s %s: refused (%s)", req.device, req.action, req.entity, why
@@ -495,22 +520,33 @@ class Gate:
 
     # The order of checks ---------------------------------------------------
 
-    async def handle(self, data: bytes, source: tuple) -> None:
-        """One datagram from `source` (address, port)."""
+    def screen(self, data: bytes, source: tuple) -> tuple[Control, DeviceRecord] | None:
+        """Steps 1 and 2, at once and without any key work: the request and
+        the gate's record of its device, or None (dropped)."""
         req = parse_control(data)                                      # 1. shape
         if req is None:
             self._log.debug("home control: dropped a datagram out of shape from %s", source[0])
-            return
+            return None
         record = self._lookup(req.device)                              # 2. not a stranger
         if record is None:
             self._log.debug("home control: dropped a request naming %s, a device with no key here", req.device)
-            return
+            return None
+        return req, record
+
+    async def handle(self, data: bytes, source: tuple) -> None:
+        """One datagram from `source` (address, port)."""
+        screened = self.screen(data, source)
+        if screened is not None:
+            await self.handle_request(*screened, source)
+
+    async def handle_request(self, req: Control, record: DeviceRecord, source: tuple) -> None:
+        """Steps 3 to 10, for a request `screen` let through."""
         # Answers go to the request's source address, on the device's port.
         addr = (source[0], DEVICE_PORT)
 
         now = self._mono()
         self._forget_old(now)
-        kept = self._memory.get(req.id)                                # 3. a repeat
+        kept = self._memory.get((req.device, req.id))                  # 3. a repeat
         if kept is not None:
             if kept.request == req.raw:
                 self._send(kept.answer, addr)
@@ -556,6 +592,8 @@ class Gate:
 
         self._last_t[req.device] = req.t                               # 10. take it
         taken = self._answer("taken", req, limit_ms=self._limit_ms)
+        key = (req.device, req.id)
+        self._acting.add(key)
         self._remember(req, taken, now)
         self._send(taken, addr)
 
@@ -563,13 +601,15 @@ class Gate:
             outcome, detail = await self._act(req.entity, kind, req.action, self._limit_ms / 1000)
         except Exception as err:  # noqa: BLE001
             outcome, detail = "not_changed", f"error: {err}"
+        finally:
+            self._acting.discard(key)
         if outcome not in OUTCOMES:
             outcome, detail = "not_changed", f"no outcome ({outcome})"
 
         result = self._answer("result", req, outcome=outcome)
-        kept = self._memory.get(req.id)
-        if kept is not None and kept.request == req.raw:
-            kept.answer = result
+        # The result replaces `taken` as this request's latest answer, kept
+        # from when the request first came.
+        self._remember(req, result, now)
         self._log.info(
             "home control: %s asked %s %s: %s (%s)", req.device, req.action, req.entity, outcome, detail
         )
