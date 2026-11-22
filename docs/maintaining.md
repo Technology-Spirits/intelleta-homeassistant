@@ -53,10 +53,26 @@ what links point at: rename one only on purpose, and change the test with it.
 ## What the customer shares, and the gate's key
 
 **Configure** on the integration's entry opens the "Share with Intelleta" screen
-(`config_flow.py`, the options step). It is Home Assistant's own entity picker,
-several at once, limited to lights, switches, fans, covers, locks, climate, media
-players and scenes (`sharing.SHAREABLE_KINDS`). It starts empty. Nothing inside
-those kinds is held back: the customer chooses.
+(`config_flow.py`, the options step). It is three of Home Assistant's own pick
+lists, several at once in each, and all three start empty:
+
+- **Single things**: the entity picker, limited to lights, switches, fans, covers,
+  locks, climate and media players (`sharing.SHAREABLE_KINDS` without scenes).
+  Nothing inside those kinds is held back: the customer chooses.
+- **Scenes**: the entity picker again, limited to scenes. Scenes are saved with
+  the single things, as they always were; only the screen shows them apart.
+- **Whole devices from Home Assistant**: the device picker, limited to devices
+  that hold a light or a switch. A picked device is shared as ONE thing under the
+  device's name. Its id is made by `sharing.whole_device_entity` from Home
+  Assistant's id for the device, in the same form as an entity's id and always of
+  kind `switch`, so the account, the app and an Intelleta device carry it like
+  any other thing. Only this integration knows it stands for several: when a
+  request for it arrives, `receiver.HassHome` turns it into the device's lights
+  and switches as they are at that moment (`share.whole_members`: no settings or
+  diagnostic toggles, nothing hidden or disabled, nothing of Intelleta's own),
+  asks every one of them, and reports it changed only when all of them have
+  (`sharing.whole_state`). What the gate allows and what the account is told are
+  both built by `share.shared_ids`, so the two cannot differ.
 
 What leaves the home, in `PUT /integration/shared` on the account (`share.py`,
 `sharing.py`):

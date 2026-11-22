@@ -48,14 +48,20 @@ SECTION_2 = [
 SECTION_3_LAST = "The Home Assistant page in the app changes to **Connected** on its own."
 SECTION_4 = [
     "In Home Assistant, go to **Settings → Devices & services → Intelleta** and "
-    "press **Configure**. Under **Shared with Intelleta**, use **Choose entity** to "
-    "add each light, switch, scene or other thing you want to share, then press "
-    "**Submit**. What you add here leaves your home: its name, kind and room. "
+    "press **Configure**. Pick what to share in its three lists, then press "
+    "**Submit**:",
+    "- **Single things**: each light, switch, fan, blind, lock, thermostat, TV or "
+    "speaker, on its own.\n"
+    "- **Scenes**: your Home Assistant scenes.\n"
+    "- **Whole devices from Home Assistant**: a device in Home Assistant, such as a "
+    "wall switch with four lights, shared as one thing under its name. Andy switches "
+    "only its lights and switches, all together. This is not your Intelleta device.",
+    "What you add here leaves your home: its name, kind and room. "
     "Your account also keeps where Home Assistant is on your home network.",
-    "Then, in the Intelleta app, open a device, go to **Voice control**, and pick "
-    "up to six of them. Say \"Hi Andy, turn on\" and the name. Want more than six? "
-    "Make a scene in Home Assistant that does several things at once, and pick the "
-    "scene.",
+    "Then, in the Intelleta app, open an Intelleta device, go to **Voice control**, "
+    "and pick up to six of them. A whole device counts as one. Say \"Hi Andy, turn "
+    "on\" and the name. Want more than six? Share a whole device, or make a scene in "
+    "Home Assistant that does several things at once, and pick that.",
 ]
 ROWS = [
     (
@@ -222,6 +228,16 @@ def test_the_guide_does_not_ask_for_a_second_hi_andy():
     assert "even straight after Andy has answered" not in text
     step_4 = _section(text, "## 4. Choose what Andy can control")
     assert "Say \"Hi Andy, turn on\" and the name. Want more than six?" in step_4
+
+
+def test_step_4_never_leaves_the_two_kinds_of_device_to_be_confused():
+    """A Home Assistant device and an Intelleta device are both on this step:
+    ours is always "Intelleta device", and the guide says the third list is
+    not about it."""
+    step_4 = _section(_guide(), "## 4. Choose what Andy can control")
+    assert "This is not your Intelleta device." in step_4
+    assert "open an Intelleta device" in step_4
+    assert "Choose entity" not in step_4 and "Add entity" not in step_4
 
 
 def test_nothing_sends_a_person_to_the_old_key_place():

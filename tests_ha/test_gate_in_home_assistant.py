@@ -15,9 +15,14 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from homeassistant.core import HomeAssistant, ServiceCall
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.intelleta import gate, receiver, share
+from custom_components.intelleta import gate, receiver, share, sharing
 from custom_components.intelleta.api import CloudDevice
-from custom_components.intelleta.const import CONF_CREDENTIAL, CONF_SHARED, DOMAIN
+from custom_components.intelleta.const import (
+    CONF_CREDENTIAL,
+    CONF_SHARED,
+    CONF_SHARED_DEVICES,
+    DOMAIN,
+)
 
 DEVICE = "aqm-A1B2C3D4E5F6"
 DEVICE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -99,6 +104,163 @@ async def test_not_changed_when_home_assistant_has_no_such_service(hass: HomeAss
     outcome, detail = await gate.act_on(receiver.HassHome(hass), "fan.ceiling", "fan", "on", 1)
     assert outcome == "not_changed"
     assert "refused" in detail
+
+
+# ── A whole device shared as one thing ──────────────────────────────────────
+
+
+def _wall_switch(hass: HomeAssistant, kinds=("switch", "switch", "switch", "switch"), state="off"):
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+
+    owner = MockConfigEntry(domain="test")
+    owner.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=owner.entry_id, identifiers={("test", "kitchen")}, name="Kitchen Lights"
+    )
+    members = []
+    for n, kind in enumerate(kinds, start=1):
+        gang = er.async_get(hass).async_get_or_create(
+            kind, "test", f"kitchen-{n}", device_id=device.id,
+            suggested_object_id=f"kitchen_lights_{n}",
+        )
+        hass.states.async_set(gang.entity_id, state)
+        members.append(gang.entity_id)
+    return device, members, sharing.whole_device_entity(device.id)
+
+
+def _switching(hass: HomeAssistant, domain: str, service: str, new_state: str, calls: list,
+               stuck: tuple = ()):
+    """A service that switches every entity it is given, but the stuck ones."""
+    async def handler(call: ServiceCall) -> None:
+        entity_ids = call.data["entity_id"]
+        entity_ids = [entity_ids] if isinstance(entity_ids, str) else list(entity_ids)
+        calls.append((domain, service, sorted(entity_ids)))
+        for entity_id in entity_ids:
+            if entity_id not in stuck:
+                hass.states.async_set(entity_id, new_state)
+
+    hass.services.async_register(domain, service, handler)
+
+
+async def test_a_whole_device_switches_every_light_on_it_with_one_request(hass: HomeAssistant):
+    calls: list = []
+    _switching(hass, "switch", "turn_on", "on", calls)
+    _, members, whole = _wall_switch(hass)
+
+    outcome, _ = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 2)
+    assert outcome == "changed"
+    assert calls == [("switch", "turn_on", sorted(members))]
+    assert [hass.states.get(m).state for m in members] == ["on"] * 4
+
+
+async def test_a_whole_device_is_switched_off_all_together(hass: HomeAssistant):
+    calls: list = []
+    _switching(hass, "switch", "turn_off", "off", calls)
+    _, members, whole = _wall_switch(hass, state="on")
+
+    outcome, _ = await gate.act_on(receiver.HassHome(hass), whole, "switch", "off", 2)
+    assert outcome == "changed"
+    assert [hass.states.get(m).state for m in members] == ["off"] * 4
+
+
+async def test_a_whole_device_is_not_done_while_one_light_did_not_change(hass: HomeAssistant):
+    """Owner: "done" means all of them."""
+    calls: list = []
+    _, members, whole = _wall_switch(hass)
+    _switching(hass, "switch", "turn_on", "on", calls, stuck=(members[2],))
+
+    outcome, detail = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 0.3)
+    assert outcome == "not_changed"
+    assert "mixed" in detail
+    # The others were still switched.
+    assert [hass.states.get(m).state for m in members] == ["on", "on", "off", "on"]
+
+
+async def test_switching_off_is_not_done_when_the_first_light_goes_off(hass: HomeAssistant):
+    calls: list = []
+    _, members, whole = _wall_switch(hass, state="on")
+    _switching(hass, "switch", "turn_off", "off", calls, stuck=(members[0],))
+
+    outcome, _ = await gate.act_on(receiver.HassHome(hass), whole, "switch", "off", 0.3)
+    assert outcome == "not_changed"
+
+
+async def test_a_whole_device_already_all_on_is_done_without_waiting(hass: HomeAssistant):
+    _, _, whole = _wall_switch(hass, state="on")
+    outcome, detail = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 2)
+    assert (outcome, detail) == ("changed", "already on")
+
+
+async def test_a_whole_device_with_some_lights_on_switches_the_rest(hass: HomeAssistant):
+    calls: list = []
+    _switching(hass, "switch", "turn_on", "on", calls)
+    _, members, whole = _wall_switch(hass)
+    hass.states.async_set(members[1], "on")
+
+    outcome, _ = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 2)
+    assert outcome == "changed"
+    assert [hass.states.get(m).state for m in members] == ["on"] * 4
+
+
+async def test_lights_and_switches_on_one_device_are_each_asked_in_their_own_words(
+    hass: HomeAssistant,
+):
+    calls: list = []
+    _switching(hass, "switch", "turn_on", "on", calls)
+    _switching(hass, "light", "turn_on", "on", calls)
+    _, members, whole = _wall_switch(hass, kinds=("light", "switch", "light"))
+
+    outcome, _ = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 2)
+    assert outcome == "changed"
+    assert sorted(calls) == [
+        ("light", "turn_on", sorted(m for m in members if m.startswith("light."))),
+        ("switch", "turn_on", sorted(m for m in members if m.startswith("switch."))),
+    ]
+
+
+async def test_one_kind_refused_still_switches_the_other_and_is_not_done(hass: HomeAssistant):
+    calls: list = []
+    _switching(hass, "switch", "turn_on", "on", calls)  # no light.turn_on at all
+    _, members, whole = _wall_switch(hass, kinds=("light", "switch"))
+
+    outcome, detail = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 1)
+    assert outcome == "not_changed"
+    assert "refused" in detail
+    assert hass.states.get(members[1]).state == "on"
+
+
+async def test_a_whole_device_that_cannot_be_read_at_all_is_unavailable(hass: HomeAssistant):
+    _, _, whole = _wall_switch(hass, state="unavailable")
+    outcome, detail = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 1)
+    assert (outcome, detail) == ("not_changed", "unavailable")
+
+
+async def test_a_whole_device_that_is_gone_is_unavailable(hass: HomeAssistant):
+    whole = sharing.whole_device_entity("0" * 32)
+    outcome, detail = await gate.act_on(receiver.HassHome(hass), whole, "switch", "on", 1)
+    assert (outcome, detail) == ("not_changed", "unavailable")
+
+
+async def test_the_gate_allows_a_whole_device_the_customer_shares(hass: HomeAssistant):
+    device, members, whole = _wall_switch(hass)
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_CREDENTIAL: "intelleta_test_key"},
+        options={CONF_SHARED: ["light.living_lamp"], CONF_SHARED_DEVICES: [device.id]},
+        version=1,
+    )
+    entry.add_to_hass(hass)
+    coordinator = _Coordinator({
+        DEVICE: CloudDevice(device_id=DEVICE, name="Kitchen", capabilities=("home_control",),
+                            pubkey=DEVICE_PUB, control=(whole,)),
+    })
+    rx = receiver.GateReceiver(hass, rsa.generate_private_key(public_exponent=65537, key_size=2048))
+    rx.add(entry, coordinator)
+    record = rx.lookup(DEVICE)
+    assert record.shared == frozenset({"light.living_lamp", whole})
+    assert record.control == frozenset({whole})
+    # A single light of the device is NOT shared just because the whole is.
+    assert members[0] not in record.shared
 
 
 class _Coordinator:

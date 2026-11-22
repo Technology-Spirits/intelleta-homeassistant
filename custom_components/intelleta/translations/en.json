@@ -30,9 +30,16 @@
     "step": {
       "init": {
         "title": "Share with Intelleta",
-        "description": "Choose the lights, switches, scenes and other things to share with Intelleta. In the Intelleta app you then pick up to six on each device for Andy to control. Their names, kinds and rooms are sent to your Intelleta account, and to Google, which runs Andy's voice, so Andy can recognise them.",
+        "description": "Choose the lights, switches, scenes and other things to share with Intelleta. In the Intelleta app you then pick up to six on each Intelleta device for Andy to control. Their names, kinds and rooms are sent to your Intelleta account, and to Google, which runs Andy's voice, so Andy can recognise them.",
         "data": {
-          "shared": "Shared with Intelleta"
+          "shared": "Single things",
+          "shared_scenes": "Scenes",
+          "shared_devices": "Whole devices from Home Assistant"
+        },
+        "data_description": {
+          "shared": "Each light, switch, fan, blind, lock, thermostat, TV or speaker you pick is shared on its own.",
+          "shared_scenes": "Only your Home Assistant scenes are listed here. Each one you pick is shared as one thing.",
+          "shared_devices": "A wall switch with four lights, for example, becomes one thing for Andy under its Home Assistant name. Andy switches only its lights and switches, all together."
         }
       }
     }

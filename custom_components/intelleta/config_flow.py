@@ -36,8 +36,20 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import AuthFailed, CloudClient, CloudUnavailable
-from .const import API_BASE_URL, CONF_CREDENTIAL, CONF_SHARED, DOMAIN
-from .sharing import SHAREABLE_KINDS
+from .const import (
+    API_BASE_URL,
+    CONF_CREDENTIAL,
+    CONF_SHARED,
+    CONF_SHARED_DEVICES,
+    DOMAIN,
+    FIELD_SHARED_SCENES,
+)
+from .sharing import (
+    SHAREABLE_KINDS,
+    WHOLE_DEVICE_MEMBER_KINDS,
+    merge_picks,
+    split_scenes,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -182,30 +194,55 @@ class IntellettaConfigFlow(ConfigFlow, domain=DOMAIN):
 class IntellettaOptionsFlow(OptionsFlow):
     """Share with Intelleta: the customer picks what leaves the home.
 
-    ⭐ HOME ASSISTANT'S OWN SEARCHABLE MULTI-PICK LIST, the one every other
-    integration uses, so it works in a home with hundreds of things. Limited to
-    the kinds a device can act on (`sharing.SHAREABLE_KINDS`); inside those,
-    nothing is held back because of its kind. The customer chooses.
+    ⭐ THREE OF HOME ASSISTANT'S OWN SEARCHABLE MULTI-PICK LISTS, the ones every
+    other integration uses, so the screen works in a home with hundreds of
+    things:
+
+      * single things, limited to the kinds a device can act on
+        (`sharing.SHAREABLE_KINDS`) except scenes; inside those, nothing is
+        held back because of its kind;
+      * scenes, in a list of their own, so they are not lost among the lights;
+      * whole devices: a wall switch with four lights is picked once and
+        shared as ONE thing (`sharing.whole_device_entity`). The list shows
+        every device that holds a light or a switch.
 
     ⛔ EMPTY BY DEFAULT. Nothing is shared until the customer picks it.
 
-    Saving the screen stores the list in the entry's options; the update
-    listener in `__init__.py` then sends the new set to the account.
+    Saving the screen stores the lists in the entry's options (single things
+    and scenes together, as they always were; the whole devices beside them);
+    the update listener in `__init__.py` then sends the new set to the account.
     """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
-            picked = user_input.get(CONF_SHARED) or []
-            return self.async_create_entry(data={CONF_SHARED: list(picked)})
+            return self.async_create_entry(
+                data={
+                    CONF_SHARED: merge_picks(
+                        user_input.get(CONF_SHARED), user_input.get(FIELD_SHARED_SCENES)
+                    ),
+                    CONF_SHARED_DEVICES: merge_picks(user_input.get(CONF_SHARED_DEVICES)),
+                }
+            )
 
-        current = list(self.config_entry.options.get(CONF_SHARED, []))
+        options = self.config_entry.options
+        things, scenes = split_scenes(options.get(CONF_SHARED, []))
+        devices = list(options.get(CONF_SHARED_DEVICES, []))
         schema = vol.Schema(
             {
-                vol.Optional(CONF_SHARED, default=current): selector.EntitySelector(
+                vol.Optional(CONF_SHARED, default=things): selector.EntitySelector(
                     selector.EntitySelectorConfig(
-                        domain=list(SHAREABLE_KINDS),
+                        domain=[kind for kind in SHAREABLE_KINDS if kind != "scene"],
+                        multiple=True,
+                    )
+                ),
+                vol.Optional(FIELD_SHARED_SCENES, default=scenes): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["scene"], multiple=True)
+                ),
+                vol.Optional(CONF_SHARED_DEVICES, default=devices): selector.DeviceSelector(
+                    selector.DeviceSelectorConfig(
+                        entity=[{"domain": list(WHOLE_DEVICE_MEMBER_KINDS)}],
                         multiple=True,
                     )
                 ),

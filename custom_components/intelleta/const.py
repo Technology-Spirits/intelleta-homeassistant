@@ -35,6 +35,14 @@ CONF_ACCOUNT_ID = "account_id"
 # Intelleta" screen. Empty (absent) until the customer picks something.
 CONF_SHARED = "shared"
 
+# Options key: the Home Assistant device ids the customer shared as whole
+# devices on the same screen. Each is shared as ONE thing (sharing.py).
+CONF_SHARED_DEVICES = "shared_devices"
+
+# The screen's own field for scenes. Not stored: scenes are saved in
+# CONF_SHARED with every other thing, as they always were.
+FIELD_SHARED_SCENES = "shared_scenes"
+
 # How often the local endpoint is asked, when the cube is reachable on the
 # home network. The cube publishes on its own schedule (30s..5min, settable);
 # asking more often than it measures buys nothing but traffic.
