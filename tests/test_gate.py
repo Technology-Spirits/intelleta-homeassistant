@@ -82,7 +82,7 @@ class Harness:
     """A gate with a fake home behind it, past its starting window."""
 
     def __init__(self, outcome=("changed", "reached on"), *, started=True,
-                 shared=SHARED, lists=LISTS) -> None:
+                 shared=SHARED, lists=LISTS, recheck=None) -> None:
         self.clock = Clock()
         self.sent: list[tuple[bytes, tuple]] = []
         self.acted: list[tuple[str, str, str, float]] = []
@@ -109,6 +109,7 @@ class Harness:
             wall_ms=lambda: self.clock.wall,
             mono=lambda: self.clock.mono,
             sleep=no_sleep,
+            recheck=recheck,
         )
         if started:
             self.clock.advance(gate.STARTING_S + 10)
@@ -602,3 +603,148 @@ def test_the_gate_agrees_with_the_rest_of_the_integration():
     assert gate.KEY_BITS == gate_key.KEY_BITS
     assert gate.MAX_PUBKEY_CHARS == api.MAX_PUBKEY_CHARS
     assert gate.MAX_ENTITY_BYTES == api.MAX_ENTITY_BYTES == 96
+
+
+# ── a thing picked a moment ago: the list is read once more ─────────────────
+#
+# The account pushes a new pick to the device at once, but the gate reads the
+# lists only once a minute. Before refusing "not on this device's list", the
+# gate asks the account for the list once more.
+
+
+def _record(device, things, shared=SHARED):
+    return gate.device_record(_b64_public(DEVICE_KEYS[device]), things, shared)
+
+
+class Account:
+    """What the account would answer if asked again now."""
+
+    def __init__(self, things=None, *, shared=SHARED, error=None, never=False) -> None:
+        self.things = things
+        self.shared = shared
+        self.error = error
+        self.never = never
+        self.asked: list[str] = []
+
+    async def __call__(self, device):
+        self.asked.append(device)
+        if self.never:
+            await asyncio.sleep(3600)
+        if self.error is not None:
+            raise self.error
+        return None if self.things is None else _record(device, self.things, self.shared)
+
+
+def test_a_thing_picked_a_moment_ago_is_taken_after_one_more_look():
+    account = Account(LISTS[KITCHEN] + ("light.floor",))
+    h = Harness(recheck=account)
+    h.handle(control(KITCHEN, entity="light.floor"))
+    assert [a["kind"] for a in h.answers()][0] == "taken"
+    assert h.acted[0][0] == "light.floor"
+    assert account.asked == [KITCHEN]
+
+
+def test_a_thing_still_not_on_the_list_after_one_more_look_is_refused():
+    account = Account(LISTS[KITCHEN])
+    h = Harness(recheck=account)
+    h.handle(control(KITCHEN, entity="light.floor"))
+    assert _refusal(h) == "not_on_list"
+    assert account.asked == [KITCHEN]
+
+
+def test_the_account_is_not_asked_for_a_thing_already_on_the_list():
+    account = Account(LISTS[KITCHEN])
+    h = Harness(recheck=account)
+    h.handle(control(KITCHEN))
+    assert account.asked == []
+
+
+def test_the_account_is_not_asked_for_a_thing_that_is_not_shared():
+    """Sharing is read from Home Assistant itself; there is nothing newer to ask for."""
+    account = Account(LISTS[KITCHEN] + ("switch.kettle",))
+    h = Harness(recheck=account)
+    h.handle(control(KITCHEN, entity="switch.kettle"))
+    assert _refusal(h) == "not_shared"
+    assert account.asked == []
+
+
+def test_one_more_look_never_lets_through_a_thing_that_is_no_longer_shared():
+    account = Account(LISTS[KITCHEN] + ("light.floor",), shared=SHARED - {"light.floor"})
+    h = Harness(recheck=account)
+    h.handle(control(KITCHEN, entity="light.floor"))
+    assert _refusal(h) == "not_on_list"
+
+
+def test_a_device_that_keeps_asking_costs_one_look_every_few_seconds():
+    account = Account(LISTS[KITCHEN])
+    h = Harness(recheck=account)
+    for n in range(4):
+        h.handle(control(KITCHEN, id=f"{n:02x}" * 16, t=h.clock.wall + n, entity="light.floor"))
+    assert account.asked == [KITCHEN]
+    assert [a["why"] for a in h.answers()] == ["not_on_list"] * 4
+
+    h.clock.advance(gate.LIST_RECHECK_EVERY_S)
+    h.handle(control(KITCHEN, id="0e" * 16, t=h.clock.wall, entity="light.floor"))
+    assert account.asked == [KITCHEN, KITCHEN]
+
+
+def test_one_devices_look_does_not_use_up_anothers():
+    account = Account(())
+    h = Harness(recheck=account)
+    h.handle(control(KITCHEN, entity="light.floor"))
+    h.handle(control(BEDROOM, id="ab" * 16, entity="light.living_lamp"))
+    assert account.asked == [KITCHEN, BEDROOM]
+
+
+@pytest.mark.parametrize("answer", [Account(None), Account(error=RuntimeError("the account is away"))])
+def test_a_look_that_fails_is_a_refusal_not_an_error(answer):
+    h = Harness(recheck=answer)
+    h.handle(control(KITCHEN, entity="light.floor"))
+    assert _refusal(h) == "not_on_list"
+
+
+def test_a_look_that_takes_too_long_is_a_refusal_within_the_devices_wait(monkeypatch):
+    monkeypatch.setattr(gate, "LIST_RECHECK_LIMIT_S", 0.05)
+    h = Harness(recheck=Account(LISTS[KITCHEN] + ("light.floor",), never=True))
+    h.handle(control(KITCHEN, entity="light.floor"))
+    assert _refusal(h) == "not_on_list"
+
+
+def test_the_look_fits_inside_the_time_a_device_waits_for_an_answer():
+    """A device waits 1,000 ms, asks once more, and waits 1,000 ms again."""
+    assert gate.LIST_RECHECK_LIMIT_S < 2.0
+
+
+def test_a_repeat_that_arrives_during_the_look_is_answered_once():
+    """The device asks again after a second; the look is still running."""
+
+    async def scenario():
+        release = asyncio.Event()
+        asked = []
+
+        async def account(device):
+            asked.append(device)
+            await release.wait()
+            return _record(device, LISTS[KITCHEN] + ("light.floor",))
+
+        h = Harness(recheck=account)
+        request = control(KITCHEN, entity="light.floor")
+        first = asyncio.ensure_future(h.gate.handle(request, SOURCE))
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        await h.gate.handle(request, SOURCE)      # the device's one re-ask
+        assert h.sent == []                        # nothing yet, and no second look
+        release.set()
+        await first
+        return h, asked
+
+    h, asked = asyncio.run(scenario())
+    assert asked == [KITCHEN]
+    assert [a["kind"] for a in h.answers()][0] == "taken"
+    assert len(h.acted) == 1
+
+
+def test_a_gate_with_no_way_to_ask_refuses_as_before():
+    h = Harness()
+    h.handle(control(KITCHEN, entity="light.floor"))
+    assert _refusal(h) == "not_on_list"

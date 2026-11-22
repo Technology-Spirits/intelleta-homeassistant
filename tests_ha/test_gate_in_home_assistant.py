@@ -446,3 +446,73 @@ async def test_removing_the_last_entry_stops_a_gate_that_failed_to_unload(
     await hass.config_entries.async_remove(entry.entry_id)
     await async_remove_entry(hass, entry)
     assert receiver.GATE_DATA not in hass.data
+
+
+# ── a thing picked a moment ago ─────────────────────────────────────────────
+
+
+def _cloud_device(control, device_id=DEVICE, pubkey=DEVICE_PUB):
+    return CloudDevice(device_id=device_id, name="Kitchen", capabilities=("home_control",),
+                       pubkey=pubkey, control=control)
+
+
+async def test_the_lists_are_read_again_from_the_account_between_two_rounds(hass: HomeAssistant):
+    from custom_components.intelleta.coordinator import IntellettaCoordinator
+
+    coordinator = IntellettaCoordinator(hass, "intelleta_test_key")
+    coordinator.devices = {DEVICE: _cloud_device(("light.living_lamp",))}
+
+    async def now(self):  # noqa: ARG001
+        return [
+            _cloud_device(("light.living_lamp", "light.floor"), pubkey="a key the poll has not seen"),
+            _cloud_device(("light.x",), device_id="aqm-0000000000B2"),
+        ]
+
+    with patch("custom_components.intelleta.api.CloudClient.async_list_devices", now):
+        await coordinator.async_read_lists_again()
+
+    # The list is the new one; the key, and which devices exist, stay the poll's.
+    assert coordinator.devices[DEVICE].control == ("light.living_lamp", "light.floor")
+    assert coordinator.devices[DEVICE].pubkey == DEVICE_PUB
+    assert list(coordinator.devices) == [DEVICE]
+
+
+async def test_an_account_that_is_away_changes_nothing_when_asked_again(hass: HomeAssistant):
+    from custom_components.intelleta import api
+    from custom_components.intelleta.coordinator import IntellettaCoordinator
+
+    coordinator = IntellettaCoordinator(hass, "intelleta_test_key")
+    before = {DEVICE: _cloud_device(("light.living_lamp",))}
+    coordinator.devices = dict(before)
+
+    for error in (api.CloudUnavailable("away"), api.AuthFailed("refused")):
+        async def away(self, error=error):  # noqa: ARG001
+            raise error
+
+        with patch("custom_components.intelleta.api.CloudClient.async_list_devices", away):
+            await coordinator.async_read_lists_again()
+        assert coordinator.devices == before
+        assert coordinator.key_refused is False
+
+
+async def test_the_gate_asks_the_devices_own_account_and_judges_the_new_list(hass: HomeAssistant):
+    entry = _entry(hass, ["light.living_lamp", "light.floor"])
+
+    class Coordinator(_Coordinator):
+        asked = 0
+
+        async def async_read_lists_again(self):
+            self.asked += 1
+            self.devices = {DEVICE: _cloud_device(("light.living_lamp", "light.floor"))}
+
+    coordinator = Coordinator({DEVICE: _cloud_device(("light.living_lamp",))})
+    rx = receiver.GateReceiver(hass, rsa.generate_private_key(public_exponent=65537, key_size=2048))
+    rx.add(entry, coordinator)
+    assert "light.floor" not in rx.lookup(DEVICE).control
+
+    record = await rx.read_again(DEVICE)
+    assert coordinator.asked == 1
+    assert "light.floor" in record.control
+    # A device no account here holds is not asked about.
+    assert await rx.read_again("aqm-FFFFFFFFFFFF") is None
+    assert coordinator.asked == 1

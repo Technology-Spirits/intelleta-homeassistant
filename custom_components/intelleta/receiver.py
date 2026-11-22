@@ -140,7 +140,9 @@ class GateReceiver:
         async def act(entity: str, kind: str, action: str, limit_s: float) -> tuple[str, str]:
             return await gate.act_on(home, entity, kind, action, limit_s)
 
-        self._gate = gate.Gate(key, lookup=self.lookup, act=act, send=self._send)
+        self._gate = gate.Gate(
+            key, lookup=self.lookup, act=act, send=self._send, recheck=self.read_again
+        )
         self._entries: dict[str, tuple[ConfigEntry, object]] = {}
         self._transport: asyncio.DatagramTransport | None = None
         self._retry_unsub: Callable[[], None] | None = None
@@ -180,6 +182,19 @@ class GateReceiver:
                     shared_ids(entry.options),
                 )
         return None
+
+    async def read_again(self, device_id: str) -> gate.DeviceRecord | None:
+        """The device's record after asking its account for the lists once
+        more. For a thing picked in the app within the last minute: the
+        account pushes it to the device at once, but the readings' poll brings
+        it here only at its next round (gate.LIST_RECHECK_EVERY_S)."""
+        for _entry, coordinator in self._entries.values():
+            if device_id in getattr(coordinator, "devices", {}):
+                read = getattr(coordinator, "async_read_lists_again", None)
+                if read is not None:
+                    await read()
+                break
+        return self.lookup(device_id)
 
     # The listener ----------------------------------------------------------
 

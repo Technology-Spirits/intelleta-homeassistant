@@ -5,6 +5,14 @@ heading is the release's tag and matches `version` in `manifest.json`. Newest
 first. The text is a draft until it has been through the words review described
 in `maintaining.md`.
 
+## v0.3.2
+
+A thing you have just picked for a device in the Intelleta app can be asked
+for straight away. Before, Home Assistant could turn the request away for up
+to a minute after the pick.
+
+After updating, restart Home Assistant.
+
 ## v0.3.1
 
 Scenes now have their own list, and you can share a whole device from Home
