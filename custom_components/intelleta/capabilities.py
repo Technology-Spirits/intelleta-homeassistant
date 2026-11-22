@@ -55,8 +55,8 @@ class SensorSpec:
     """Where to find it in the payload — the contract's own field name."""
 
     name: str
-    """⚠ PLACEHOLDER ENGLISH. Every customer-visible string goes through Raye and
-    Thomas. Keeping them all in this one table is what makes that a find-and-
+    """⚠ PLACEHOLDER ENGLISH. Every customer-visible string goes through the words
+    review. Keeping them all in this one table is what makes that a find-and-
     replace rather than an archaeology exercise."""
 
     device_class: str | None = None

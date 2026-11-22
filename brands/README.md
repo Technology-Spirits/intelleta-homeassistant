@@ -39,7 +39,7 @@ both. So one of these is true and somebody has to decide which:
    describe.
 
 The assets above use the mark as it exists. **That is a placeholder for the
-answer, not the answer** — this is Raye's and Thomas's call, per the rule that
+answer, not the answer** — this is the brand owners' call, per the rule that
 if Home Assistant's requirements cannot be met by the existing mark, it is a
 question for them rather than a licence to adapt it.
 
