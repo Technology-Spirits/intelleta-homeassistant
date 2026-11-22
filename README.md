@@ -1,86 +1,49 @@
 # Intelleta for Home Assistant
 
-Brings Intelleta air-sensing devices into Home Assistant.
+Brings your Intelleta devices into Home Assistant, and lets Andy switch the
+things you share from it.
 
-## How it works
+Needs Home Assistant 2024.11 or later, and HACS, the Home Assistant Community
+Store.
 
-You sign in once with a key from your Intelleta account. Your devices then appear
-in Home Assistant with the readings each one measures.
+## Install it
 
-Readings come straight from each device over your own network. Your account
-tells Home Assistant where each device is, so you type no address. If a device
-cannot be reached on your network, its readings come through your Intelleta
-account instead, and switch back once the device can be reached again.
+Follow the install guide: [docs/installing.md](docs/installing.md). In short:
+install Intelleta from HACS, make a key in the Intelleta app (**Settings → Home
+Assistant → Make a key**), paste it into Home Assistant, then choose what Andy
+can control.
 
-If your internet goes down, readings keep coming over your network, unless
-Home Assistant starts or restarts during the outage: it learns your devices
-from your account each time it starts, so until the internet returns,
-everything is unavailable.
+## Your readings
 
-Controls (volume, brightness, screen, brightness mode) show the value the
-device itself reports. Changing one goes through your Intelleta account and
-needs the internet. That is deliberate: on your network, the device gives out
-readings and takes no commands.
+Each device on your account appears in Home Assistant with the readings it
+measures, read over your own network.
 
-## What this repository is not
+Controls (volume, brightness, screen, brightness mode) need the internet.
 
-⛔ **It does not contain the device's wire protocol.** It talks to our API and
-to the device's own local endpoint. Copying the device contract in would publish
-the protocol, and would tie software living in customers' homes to a contract it
-cannot be upgraded alongside. There is a test that fails if anyone tries.
+## Voice control
 
-The one exception is deliberate: the messages a device sends this integration to
-switch a thing, and the integration's answers, are implemented here
-(`custom_components/intelleta/gate.py`, with test vectors in `tests/`), because
-this integration is the side that judges them. For them, Home Assistant listens
-on UDP port 41846 on your network, and acts only on a request signed by one of
-your own devices, for a thing you shared and put on that device's list. The
-format is public by design; the protection is the two keys, never the format.
-[docs/maintaining.md](docs/maintaining.md) has the details.
+1. In Home Assistant, go to **Settings → Devices & services → Intelleta** and
+   press **Configure**. Choose the things to share with Intelleta.
+2. In the Intelleta app, open a device, go to **Voice control**, and pick up to
+   six of them.
+3. Say "Hi Andy, turn on" and the name.
 
-## Installing it
+Andy can turn things on and off, open and close them, lock and unlock them, and
+start scenes.
 
-[docs/installing.md](docs/installing.md). Notes for whoever releases it are in
-[docs/maintaining.md](docs/maintaining.md).
+Your devices must reach Home Assistant on UDP port 41846 on your home network.
 
-## Development
+The names, kinds and rooms of the things you share are sent to your Intelleta
+account, and to Google, which runs Andy's voice, so Andy can recognise them.
 
-```sh
-pip install -r requirements-test.txt
-pytest tests/ -v
-```
+## If your internet goes down
 
-### ⛔ Home Assistant's test harness does not run on Windows
+Readings keep coming. Voice control and controls need the internet.
 
-Measured 2026-08-26. `pytest-homeassistant-custom-component` imports
-`homeassistant.runner`, which imports `fcntl` — POSIX only. Installing it on a
-Windows machine breaks test collection entirely, including for tests that have
-nothing to do with Home Assistant.
+## Something not working?
 
-`homeassistant.core` itself imports fine on Windows; it is specifically the
-harness that does not.
-
-So the split is deliberate:
-
-- **Logic modules import nothing** and are tested here, on any machine, in under
-  a second. That is most of the rules worth pinning — matching, the fallback
-  policy, capability gating, parsing.
-- **Anything that genuinely needs Home Assistant** is verified against a real
-  one: the bench instance in `bench-ha/`, or CI, which runs on Linux.
-
-⚠ Do not add the harness to `requirements-test.txt` to "fix" a Windows machine.
-It will fix nothing and break the fast suite for everybody.
-
-Three gates run on every push, and two of them are not ours: Home Assistant's
-own manifest validator and the installer's. They also run weekly, because they
-enforce rules that change when *their* projects change rather than when ours
-does.
-
-## Naming
-
-The technical identifier `intelleta` is settled — it is the company name.
-**Every customer-visible string goes through Raye and Thomas.** Placeholders
-live in `strings.json` where they are easy to find and replace.
+The install guide has a troubleshooting table:
+[docs/installing.md](docs/installing.md#troubleshooting).
 
 ## Licence
 

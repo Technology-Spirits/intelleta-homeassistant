@@ -24,7 +24,7 @@ def test_the_device_wire_contract_is_never_vendored_here():
 
     A rule in a comment gets read once. This gets checked every push.
 
-    The one exception is deliberate and stated in the README: the gate's own
+    The one exception is deliberate and stated in docs/maintaining.md: the gate's own
     messages (gate.py and the contract's test vectors), because this
     integration is the side that judges them. The test below keeps that
     statement in place.
@@ -129,12 +129,15 @@ def test_the_installer_file_carries_only_keys_the_installer_accepts():
 def test_the_one_exception_to_the_card_87_rule_is_stated_where_people_read():
     """The gate's messages (gate.py, and the contract's test vectors) are the
     one part of the device's protocol this repository carries, by design. The
-    README is where a reader looks for what this repository holds, so it says
-    so there, and names the port Home Assistant now listens on."""
+    maintainers' notes say so. The README is for customers: it names the port
+    Home Assistant listens on and nothing about how the gate works."""
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    notes = (ROOT / "docs" / "maintaining.md").read_text(encoding="utf-8")
     assert (COMPONENT / "gate.py").is_file()
     assert "never will" not in readme, "the README promises what the gate breaks"
-    assert "gate.py" in readme and "41846" in readme
+    assert "41846" in readme
+    assert "gate.py" not in readme, "the README is for customers, not builders"
+    assert "gate.py" in notes and "41846" in notes
 
 
 def test_the_installer_offers_it_only_to_a_home_assistant_it_runs_on():

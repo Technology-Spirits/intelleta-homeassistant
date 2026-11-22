@@ -50,8 +50,8 @@ SECTION_4 = [
     "In Home Assistant, go to **Settings → Devices & services → Intelleta** and "
     "press **Configure**. Under **Shared with Intelleta**, use **Choose entity** to "
     "add each light, switch, scene or other thing you want to share, then press "
-    "**Submit**. Only what you add here leaves your home, and only its name, kind "
-    "and room.",
+    "**Submit**. What you add here leaves your home: its name, kind and room. "
+    "Your account also keeps where Home Assistant is on your home network.",
     "Then, in the Intelleta app, open a device, go to **Voice control**, and pick "
     "up to six of them. Say \"Hi Andy, turn on\" and the name. Start every request "
     "to switch something with \"Hi Andy\", even straight after Andy has answered "
@@ -99,9 +99,8 @@ ROWS = [
         "Your devices reach Home Assistant on UDP port 41846. The container, or the "
         "computer's firewall, does not let that port in",
         "Run the container with host networking (`network_mode: host`), as Home "
-        "Assistant's own guide recommends, or open the port with "
-        "`-p 41846:41846/udp`. Allow UDP port 41846 through the computer's firewall "
-        "too. Restart Home Assistant, wait half a minute, then ask Andy again",
+        "Assistant's own guide recommends. Allow UDP port 41846 through the "
+        "computer's firewall too. Restart Home Assistant, wait half a minute, then ask Andy again",
     ),
 ]
 
