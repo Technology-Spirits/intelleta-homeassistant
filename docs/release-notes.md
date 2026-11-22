@@ -11,7 +11,8 @@ Andy can now control things you share from Home Assistant.
 
 - **Share with Intelleta.** Press **Configure** on the Intelleta entry in Home
   Assistant and choose the lights, switches, scenes and other things to share.
-  Only their names, kinds and rooms are sent to your Intelleta account.
+  Their names, kinds and rooms are sent to your Intelleta account, which also
+  keeps where Home Assistant is on your home network.
 - **Voice control.** In the Intelleta app, open a device, go to **Voice
   control**, and pick up to six of the things you shared. Then say "Hi Andy,
   turn on" and the name.
