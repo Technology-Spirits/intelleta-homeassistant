@@ -53,9 +53,7 @@ SECTION_4 = [
     "**Submit**. Only what you add here leaves your home, and only its name, kind "
     "and room.",
     "Then, in the Intelleta app, open a device, go to **Voice control**, and pick "
-    "up to six of them. Say \"Hi Andy, turn on\" and the name. Start every request "
-    "to switch something with \"Hi Andy\", even straight after Andy has answered "
-    "you. Want more than six? "
+    "up to six of them. Say \"Hi Andy, turn on\" and the name. Want more than six? "
     "Make a scene in Home Assistant that does several things at once, and pick the "
     "scene.",
 ]
@@ -216,18 +214,15 @@ def test_every_home_control_row_is_an_approved_one():
     assert rows[-len(HOME_CONTROL_ROWS):] == HOME_CONTROL_ROWS
 
 
-def test_the_guide_says_a_follow_up_needs_hi_andy():
-    """A request to switch something always starts with "Hi Andy", even straight
-    after Andy has answered: one sentence, in step 4 only, right after the
-    example request."""
-    sentence = (
-        "Start every request to switch something with \"Hi Andy\", even straight "
-        "after Andy has answered you."
-    )
+def test_the_guide_does_not_ask_for_a_second_hi_andy():
+    """The owner ruled on 2026-11-22 that a follow-up needs no second "Hi Andy"
+    (withdrawing the ruling of 2026-11-21), so the guide gives the example
+    request and says nothing about starting every request with the wake word."""
     text = _guide()
-    assert text.count(sentence) == 1
+    assert "Start every request" not in text
+    assert "even straight after Andy has answered" not in text
     step_4 = _section(text, "## 4. Choose what Andy can control")
-    assert "Say \"Hi Andy, turn on\" and the name. " + sentence in step_4
+    assert "Say \"Hi Andy, turn on\" and the name. Want more than six?" in step_4
 
 
 def test_nothing_sends_a_person_to_the_old_key_place():
