@@ -88,11 +88,23 @@ SIGNATURE_BACKOFF_S = 10
 # A thing picked in the app a moment ago is on the device's list at once, but
 # this gate reads the lists from the account only once a minute. So before a
 # request is refused as "not on this device's list", the account is asked for
-# the list once more. Bounded twice: the answer must come within the time a
-# device waits for one (1,000 ms, then one re-ask with 1,000 ms more), and the
-# account is asked at most once in this many seconds for one device, so a
-# device that keeps asking for something it may not have costs nothing.
-LIST_RECHECK_LIMIT_S = 1.5
+# the list once more. Bounded twice: by time, and the account is asked at most
+# once in LIST_RECHECK_EVERY_S for one device, so a device that keeps asking
+# for something it may not have costs nothing.
+#
+# ⛔ THE LOOK MUST END WELL INSIDE THE DEVICE'S WAIT, which is 1,000 ms from its
+# first send for `taken` or `refused`, with NO re-ask before one of them
+# arrives (the re-ask comes only after `taken`). 0.3.2 allowed 1.5 s on a wrong
+# reading of that wait; on the owner's bench (2026-11-22) the account took
+# about 1.7 s, the device gave up at 1.0 s and said Home Assistant had not
+# answered, and the gate then took the request and switched the thing. A late
+# `taken` is worse than a refusal, so:
+#   * the device is answered within LIST_RECHECK_LIMIT_S, whatever the account
+#     does: refused, if the look has not come back;
+#   * a look that is too slow is NOT thrown away. It finishes on its own, and
+#     the next request from that device (asking again a few seconds later) is
+#     judged against the fresh list without asking the account again.
+LIST_RECHECK_LIMIT_S = 0.6
 LIST_RECHECK_EVERY_S = 5
 
 # `result` is sent three times, at 0, 60 and 180 ms, so a lost datagram costs
@@ -499,6 +511,9 @@ class Gate:
         self._recheck = recheck
         self._rechecked_at: dict[str, float] = {}
         self._rechecking: set[tuple[str, str]] = set()
+        # Looks still running after their request was answered, kept so they
+        # are not dropped half done.
+        self._late_looks: set[asyncio.Future] = set()
 
     # The memory ------------------------------------------------------------
 
@@ -539,7 +554,8 @@ class Gate:
     async def _read_again(self, req: Control, now: float) -> DeviceRecord | None:
         """The device's record as the account has it NOW, or None when it was
         not asked (no way to ask, or asked for this device a moment ago) or
-        did not answer in time."""
+        did not answer in time. A look that did not answer in time is left to
+        finish: what it brings is there for the device's next request."""
         if self._recheck is None:
             return None
         last = self._rechecked_at.get(req.device)
@@ -549,13 +565,28 @@ class Gate:
         key = (req.device, req.id)
         self._rechecking.add(key)
         try:
-            async with asyncio.timeout(LIST_RECHECK_LIMIT_S):
-                return await self._recheck(req.device)
+            look = asyncio.ensure_future(self._recheck(req.device))
+            done, _pending = await asyncio.wait({look}, timeout=LIST_RECHECK_LIMIT_S)
+            if not done:
+                self._late_looks.add(look)
+                look.add_done_callback(self._late_look_done)
+                self._log.info(
+                    "home control: the account did not answer about %s's list within %d ms; "
+                    "refused now, and the answer is kept for its next request",
+                    req.device, int(LIST_RECHECK_LIMIT_S * 1000),
+                )
+                return None
+            return look.result()
         except Exception as err:  # noqa: BLE001 - a second look that fails is no look
             self._log.debug("home control: %s's list could not be read again (%r)", req.device, err)
             return None
         finally:
             self._rechecking.discard(key)
+
+    def _late_look_done(self, look: asyncio.Future) -> None:
+        self._late_looks.discard(look)
+        if not look.cancelled() and look.exception() is not None:
+            self._log.debug("home control: a late look at a list failed (%r)", look.exception())
 
     # The order of checks ---------------------------------------------------
 

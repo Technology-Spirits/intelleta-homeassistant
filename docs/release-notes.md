@@ -5,6 +5,16 @@ heading is the release's tag and matches `version` in `manifest.json`. Newest
 first. The text is a draft until it has been through the words review described
 in `maintaining.md`.
 
+## v0.3.3
+
+Corrects 0.3.2. Straight after you pick a thing for a device in the Intelleta
+app, Andy could say Home Assistant had not answered while the thing was
+switched a moment later. Now the first request in that moment is answered in
+time: if Home Assistant cannot confirm the new pick quickly enough, Andy says
+it cannot control that one, nothing is switched, and asking again works.
+
+After updating, restart Home Assistant.
+
 ## v0.3.2
 
 A thing you have just picked for a device in the Intelleta app can be asked

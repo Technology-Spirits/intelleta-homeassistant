@@ -286,7 +286,7 @@ async def test_the_set_is_sent_once_then_only_on_a_change(hass: HomeAssistant):
         body = cloud.sent[0]
         assert body["gate"]["addr"] == "192.168.1.10"
         assert body["gate"]["port"] == 41846
-        assert body["integration_version"] == "0.3.2"
+        assert body["integration_version"] == "0.3.3"
         assert body["things"] == [
             {"entity": "light.living_lamp", "name": "Living lamp", "kind": "light", "room": None}
         ]
