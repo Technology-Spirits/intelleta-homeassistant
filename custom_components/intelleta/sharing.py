@@ -43,6 +43,93 @@ SHAREABLE_KINDS: tuple[str, ...] = (
     "scene",
 )
 
+# ── A whole device shared as ONE thing ─────────────────────────────────────
+#
+# The customer can also pick a whole Home Assistant device, for example a
+# four-gang wall switch. It is shared as ONE thing under the device's own
+# name: one row in the app, one of the six places on an Intelleta device, and
+# one request switches every light and switch on it.
+#
+# Its id is made here from Home Assistant's own id for the device, in the same
+# form as an entity's id, so the account, the app and an Intelleta device carry
+# it like any other thing. Only this integration knows it stands for several
+# (receiver.py turns it back into its members when a request arrives).
+#
+# ⛔ ALWAYS THE KIND `switch`, whatever is on the device. The account keeps a
+# pick by the id, and an id that changed with what the device holds would drop
+# the pick. On and off are the only things a whole device is asked to do.
+WHOLE_DEVICE_KIND = "switch"
+WHOLE_DEVICE_MEMBER_KINDS: tuple[str, ...] = ("light", "switch")
+_WHOLE_PREFIX = f"{WHOLE_DEVICE_KIND}.intelleta_whole_"
+_DEVICE_ID_RE = re.compile(r"^[a-z0-9]+\Z")
+
+# The state of a whole device whose members do not all agree (or where some
+# cannot be read). It is neither on nor off, so it never counts as done.
+WHOLE_MIXED = "mixed"
+_NO_STATE = (None, "unavailable", "unknown")
+
+
+def whole_device_entity(device_id: object) -> str | None:
+    """The id a whole device is shared under, or None for a device id that
+    cannot be carried in one (never seen from Home Assistant, which makes
+    its device ids from lower-case letters and digits)."""
+    if not isinstance(device_id, str) or _DEVICE_ID_RE.match(device_id) is None:
+        return None
+    return f"{_WHOLE_PREFIX}{device_id}"
+
+
+def whole_device_id(entity: object) -> str | None:
+    """The Home Assistant device id behind a whole-device thing, or None when
+    `entity` is an ordinary thing."""
+    if not isinstance(entity, str) or not entity.startswith(_WHOLE_PREFIX):
+        return None
+    device_id = entity[len(_WHOLE_PREFIX):]
+    return device_id if _DEVICE_ID_RE.match(device_id) else None
+
+
+def whole_state(states: Iterable[str | None]) -> str | None:
+    """The one state of a whole device, from its members' states.
+
+    ⛔ "ON" MEANS ALL OF THEM, AND SO DOES "OFF". A device with three of four
+    lights on is `mixed`, which is neither, so the gate never says "done"
+    while one is still as it was. A member that cannot be read keeps the whole
+    device `mixed` for the same reason. None when it has no members;
+    `unavailable` when none of them can be read.
+    """
+    members = list(states)
+    if not members:
+        return None
+    readable = [state for state in members if state not in _NO_STATE]
+    if not readable:
+        return "unavailable"
+    if len(readable) == len(members):
+        if all(state == "on" for state in readable):
+            return "on"
+        if all(state == "off" for state in readable):
+            return "off"
+    return WHOLE_MIXED
+
+
+def split_scenes(entity_ids: Iterable[str]) -> tuple[list[str], list[str]]:
+    """The saved list as the screen shows it: (things, scenes), each in the
+    order it was saved."""
+    things: list[str] = []
+    scenes: list[str] = []
+    for entity_id in entity_ids:
+        (scenes if entity_id.split(".", 1)[0] == "scene" else things).append(entity_id)
+    return things, scenes
+
+
+def merge_picks(*lists: Iterable[str] | None) -> list[str]:
+    """The screen's lists as one saved list, each id once, in order."""
+    merged: list[str] = []
+    for picked in lists:
+        for item in picked or ():
+            if item not in merged:
+                merged.append(item)
+    return merged
+
+
 # The UDP port the integration listens on for a device's request. The same
 # port the devices already use among themselves on the home network.
 GATE_UDP_PORT = 41846

@@ -31,8 +31,8 @@ from homeassistant.helpers.event import (
 )
 
 from . import gate, sharing
-from .const import CONF_SHARED, DOMAIN
-from .share import async_load_gate_key
+from .const import DOMAIN
+from .share import async_load_gate_key, shared_ids, whole_members
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,27 +44,79 @@ BIND_RETRY = timedelta(seconds=60)
 
 
 class HassHome:
-    """gate.Home on a real Home Assistant."""
+    """gate.Home on a real Home Assistant.
+
+    ⭐ A WHOLE DEVICE IS ONE THING TO THE GATE. The customer can share a whole
+    Home Assistant device (a four-gang wall switch) as one thing. The gate
+    judges and answers for it exactly as for a single light; here its one id
+    is turned into the lights and switches on the device, as they are at that
+    moment: its state is all of theirs together (`sharing.whole_state`), a
+    call goes to every one of them, and a change in any of them is watched.
+    """
 
     def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
 
-    def state(self, entity: str) -> str | None:
+    def _members(self, entity: str) -> list[str] | None:
+        """The members of a whole-device thing; None for an ordinary thing."""
+        device_id = sharing.whole_device_id(entity)
+        return None if device_id is None else whole_members(self._hass, device_id)
+
+    def _one_state(self, entity: str) -> str | None:
         state = self._hass.states.get(entity)
         return state.state if state is not None else None
 
+    def state(self, entity: str) -> str | None:
+        members = self._members(entity)
+        if members is None:
+            return self._one_state(entity)
+        return sharing.whole_state(self._one_state(member) for member in members)
+
     async def call(self, domain: str, service: str, entity: str) -> None:
-        await self._hass.services.async_call(
-            domain, service, {"entity_id": entity}, blocking=True
+        members = self._members(entity)
+        if members is None:
+            await self._hass.services.async_call(
+                domain, service, {"entity_id": entity}, blocking=True
+            )
+            return
+
+        # Each kind is asked through its own service, all at the same time.
+        # Every one is asked even when another is refused; the first refusal
+        # is then raised, so the gate answers that it did not change.
+        by_kind: dict[str, list[str]] = {}
+        for member in members:
+            by_kind.setdefault(member.split(".", 1)[0], []).append(member)
+        results = await asyncio.gather(
+            *(
+                self._hass.services.async_call(
+                    kind, service, {"entity_id": ids}, blocking=True
+                )
+                for kind, ids in by_kind.items()
+            ),
+            return_exceptions=True,
         )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
 
     def watch(self, entity: str, on_change: Callable[[str | None], None]) -> Callable[[], None]:
-        @callback
-        def _changed(event: Event) -> None:
-            new = event.data.get("new_state")
-            on_change(new.state if new is not None else None)
+        members = self._members(entity)
+        if members is None:
+            @callback
+            def _changed(event: Event) -> None:
+                new = event.data.get("new_state")
+                on_change(new.state if new is not None else None)
 
-        return async_track_state_change_event(self._hass, [entity], _changed)
+            return async_track_state_change_event(self._hass, [entity], _changed)
+
+        if not members:
+            return lambda: None
+
+        @callback
+        def _member_changed(_event: Event) -> None:
+            on_change(self.state(entity))
+
+        return async_track_state_change_event(self._hass, members, _member_changed)
 
 
 class _Listener(asyncio.DatagramProtocol):
@@ -125,7 +177,7 @@ class GateReceiver:
                 return gate.device_record(
                     getattr(device, "pubkey", None),
                     getattr(device, "control", ()),
-                    entry.options.get(CONF_SHARED, []),
+                    shared_ids(entry.options),
                 )
         return None
 

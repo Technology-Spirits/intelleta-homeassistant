@@ -36,7 +36,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.loader import async_get_integration
 
 from . import api, sharing
-from .const import CONF_SHARED, DOMAIN
+from .const import CONF_SHARED, CONF_SHARED_DEVICES, DOMAIN
 from .gate_key import new_private_key_pem, usable_key_pair
 
 _LOGGER = logging.getLogger(__name__)
@@ -141,6 +141,62 @@ def collect_things(hass: HomeAssistant, entity_ids: list[str]) -> list[dict]:
     return things
 
 
+def whole_members(hass: HomeAssistant, device_id: str) -> list[str]:
+    """The lights and switches a whole device stands for, as it is now.
+
+    Left out: anything that is not a light or a switch, a settings or
+    diagnostic toggle, anything the customer disabled or hidden in Home
+    Assistant (their way to leave one out), and Intelleta's own entities.
+    Sorted, so the same device always gives the same list.
+    """
+    entities = er.async_get(hass)
+    members = [
+        entry.entity_id
+        for entry in er.async_entries_for_device(entities, device_id)
+        if entry.domain in sharing.WHOLE_DEVICE_MEMBER_KINDS
+        and entry.entity_category is None
+        and entry.hidden_by is None
+        and entry.platform != DOMAIN
+    ]
+    return sorted(members)
+
+
+def collect_whole_things(hass: HomeAssistant, device_ids: list[str]) -> list[dict]:
+    """Each picked whole device as ONE thing: its made-up id, the device's
+    own name and its room.
+
+    A device that no longer exists, has no name, or holds no light or switch
+    is left out, so it leaves the account.
+    """
+    devices = dr.async_get(hass)
+    areas = ar.async_get(hass)
+
+    things: list[dict] = []
+    for device_id in device_ids:
+        entity = sharing.whole_device_entity(device_id)
+        device = devices.async_get(device_id) if entity is not None else None
+        if device is None:
+            continue
+        name = device.name_by_user or device.name
+        if not name or not whole_members(hass, device_id):
+            continue
+        area = areas.async_get_area(device.area_id) if device.area_id else None
+        things.append({"entity": entity, "name": name, "room": area.name if area else None})
+    return things
+
+
+def shared_ids(options: dict) -> list[str]:
+    """Every id the customer shares: the picked things, then one id for each
+    whole device. What the gate allows and what the account is told are both
+    built from this, so they cannot differ."""
+    whole = [
+        entity
+        for entity in map(sharing.whole_device_entity, options.get(CONF_SHARED_DEVICES, []))
+        if entity is not None
+    ]
+    return sharing.merge_picks(options.get(CONF_SHARED, []), whole)
+
+
 async def async_gate_address(hass: HomeAssistant) -> str | None:
     """The home-network IPv4 address devices can reach this Home Assistant on."""
     try:
@@ -216,6 +272,9 @@ class SharePublisher:
 
             picked = list(self._entry.options.get(CONF_SHARED, []))
             things = collect_things(self._hass, picked)
+            things += collect_whole_things(
+                self._hass, list(self._entry.options.get(CONF_SHARED_DEVICES, []))
+            )
             for thing in things:
                 if not sharing.shareable(thing["entity"], thing["name"]):
                     _LOGGER.debug("%s cannot be shared as it is; left out", thing["entity"])

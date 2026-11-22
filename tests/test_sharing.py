@@ -363,3 +363,74 @@ def test_an_address_the_account_refuses_is_never_reported(addr):
     """The account refuses a loopback, multicast or broadcast address with a
     400; reporting one would only cost a refused request."""
     assert not sharing.gate_address_ok(addr)
+
+
+# ── A whole device shared as one thing ───────────────────────────────────────
+
+DEVICE_ID = "5f2c8d1e9a7b4c3d8e6f0a1b2c3d4e5f"
+
+
+def test_a_whole_device_has_one_id_in_the_form_the_account_takes():
+    entity = sharing.whole_device_entity(DEVICE_ID)
+    assert entity == f"switch.intelleta_whole_{DEVICE_ID}"
+    body = _body([{"entity": entity, "name": "Kitchen Lights", "room": "Kitchen"}])
+    assert body["things"] == [
+        {"entity": entity, "name": "Kitchen Lights", "kind": "switch", "room": "Kitchen"}
+    ]
+    # It can be picked: the account's bound for a pick is 96 bytes.
+    assert len(entity) <= 96
+
+
+def test_the_whole_device_id_leads_back_to_the_device():
+    assert sharing.whole_device_id(sharing.whole_device_entity(DEVICE_ID)) == DEVICE_ID
+
+
+@pytest.mark.parametrize(
+    "entity",
+    ["switch.kettle", "light.intelleta_whole_abc", "switch.intelleta_whole_", "scene.movie_time",
+     "switch.intelleta_whole_ABC", None, 7],
+)
+def test_an_ordinary_thing_is_never_taken_for_a_whole_device(entity):
+    assert sharing.whole_device_id(entity) is None
+
+
+@pytest.mark.parametrize("device_id", ["", "has space", "UPPER", "a.b", "a_b", None, 7])
+def test_a_device_id_that_cannot_be_carried_gets_no_id(device_id):
+    assert sharing.whole_device_entity(device_id) is None
+
+
+def test_a_whole_device_is_on_only_when_all_of_it_is_on():
+    assert sharing.whole_state(["on", "on", "on", "on"]) == "on"
+    assert sharing.whole_state(["on", "on", "off", "on"]) == "mixed"
+
+
+def test_a_whole_device_is_off_only_when_all_of_it_is_off():
+    assert sharing.whole_state(["off", "off", "off"]) == "off"
+    assert sharing.whole_state(["off", "on", "off"]) == "mixed"
+
+
+@pytest.mark.parametrize("dead", [None, "unavailable", "unknown"])
+def test_a_member_that_cannot_be_read_keeps_the_whole_device_from_being_done(dead):
+    assert sharing.whole_state(["on", dead, "on"]) == "mixed"
+    assert sharing.whole_state(["off", dead]) == "mixed"
+
+
+def test_a_whole_device_none_of_which_can_be_read_is_unavailable():
+    assert sharing.whole_state([None, "unavailable", "unknown"]) == "unavailable"
+
+
+def test_a_whole_device_with_nothing_on_it_has_no_state():
+    assert sharing.whole_state([]) is None
+
+
+def test_the_screen_shows_scenes_apart_and_saves_them_with_the_rest():
+    saved = ["light.a", "scene.movie_time", "switch.b", "scene.good_night"]
+    things, scenes = sharing.split_scenes(saved)
+    assert things == ["light.a", "switch.b"]
+    assert scenes == ["scene.movie_time", "scene.good_night"]
+    assert sorted(sharing.merge_picks(things, scenes)) == sorted(saved)
+
+
+def test_merging_the_lists_of_the_screen_keeps_each_id_once():
+    assert sharing.merge_picks(["a", "b"], None, ["b", "c"]) == ["a", "b", "c"]
+    assert sharing.merge_picks() == []

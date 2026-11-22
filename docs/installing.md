@@ -18,9 +18,15 @@ In Home Assistant, go to **Settings → Devices & services → Add integration**
 
 ## 4. Choose what Andy can control
 
-In Home Assistant, go to **Settings → Devices & services → Intelleta** and press **Configure**. Under **Shared with Intelleta**, use **Choose entity** to add each light, switch, scene or other thing you want to share, then press **Submit**. What you add here leaves your home: its name, kind and room. Your account also keeps where Home Assistant is on your home network.
+In Home Assistant, go to **Settings → Devices & services → Intelleta** and press **Configure**. Pick what to share in its three lists, then press **Submit**:
 
-Then, in the Intelleta app, open a device, go to **Voice control**, and pick up to six of them. Say "Hi Andy, turn on" and the name. Want more than six? Make a scene in Home Assistant that does several things at once, and pick the scene.
+- **Single things**: each light, switch, fan, blind, lock, thermostat, TV or speaker, on its own.
+- **Scenes**: your Home Assistant scenes.
+- **Whole devices from Home Assistant**: a device in Home Assistant, such as a wall switch with four lights, shared as one thing under its name. Andy switches only its lights and switches, all together. This is not your Intelleta device.
+
+What you add here leaves your home: its name, kind and room. Your account also keeps where Home Assistant is on your home network.
+
+Then, in the Intelleta app, open an Intelleta device, go to **Voice control**, and pick up to six of them. A whole device counts as one. Say "Hi Andy, turn on" and the name. Want more than six? Share a whole device, or make a scene in Home Assistant that does several things at once, and pick that.
 
 ## What you get
 

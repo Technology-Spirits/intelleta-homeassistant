@@ -5,6 +5,20 @@ heading is the release's tag and matches `version` in `manifest.json`. Newest
 first. The text is a draft until it has been through the words review described
 in `maintaining.md`.
 
+## v0.3.1
+
+Scenes now have their own list, and you can share a whole device from Home
+Assistant, such as a wall switch with four lights, as one thing that Andy
+switches all at once.
+
+- **Three lists on Share with Intelleta.** Press **Configure** on the Intelleta
+  entry in Home Assistant: **Single things**, **Scenes**, and **Whole devices
+  from Home Assistant**. What you shared before is still shared.
+- **A whole device counts as one.** In the Intelleta app it is one of the six
+  you can pick on an Intelleta device. Say "Hi Andy, turn on" and its name.
+
+After updating, restart Home Assistant.
+
 ## v0.3.0
 
 Andy can now control things you share from Home Assistant.
