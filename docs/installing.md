@@ -20,7 +20,7 @@ In Home Assistant, go to **Settings → Devices & services → Add integration**
 
 In Home Assistant, go to **Settings → Devices & services → Intelleta** and press **Configure**. Under **Shared with Intelleta**, use **Choose entity** to add each light, switch, scene or other thing you want to share, then press **Submit**. What you add here leaves your home: its name, kind and room. Your account also keeps where Home Assistant is on your home network.
 
-Then, in the Intelleta app, open a device, go to **Voice control**, and pick up to six of them. Say "Hi Andy, turn on" and the name. Start every request to switch something with "Hi Andy", even straight after Andy has answered you. Want more than six? Make a scene in Home Assistant that does several things at once, and pick the scene.
+Then, in the Intelleta app, open a device, go to **Voice control**, and pick up to six of them. Say "Hi Andy, turn on" and the name. Want more than six? Make a scene in Home Assistant that does several things at once, and pick the scene.
 
 ## What you get
 
