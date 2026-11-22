@@ -13,6 +13,7 @@ their own tests. This file does the plumbing and calls them.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import timedelta
 
 from homeassistant.core import HomeAssistant
@@ -113,6 +114,27 @@ class IntellettaCoordinator(DataUpdateCoordinator):
 
     def source_state(self, device_id: str) -> SourceState:
         return self._sources.setdefault(device_id, SourceState())
+
+    async def async_read_lists_again(self) -> None:
+        """Ask the account now for what each device may switch, between two
+        rounds of the poll. For the home control gate, when a device asks for
+        a thing picked a moment ago.
+
+        ⛔ ONLY THE LISTS OF DEVICES ALREADY KNOWN ARE TOUCHED. Which devices
+        exist, their keys, their addresses and their readings stay the poll's
+        business, and so does saying that the account is away or refused the
+        key: a failure here changes nothing and is said by the next round.
+        """
+        try:
+            fetched = await self._cloud.async_list_devices()
+        except (AuthFailed, CloudUnavailable):
+            return
+        devices = dict(self.devices)
+        for device in fetched:
+            known = devices.get(device.device_id)
+            if known is not None and known.control != device.control:
+                devices[device.device_id] = replace(known, control=device.control)
+        self.devices = devices
 
     async def _async_update_data(self) -> dict:
         try:

@@ -85,6 +85,16 @@ MEMORY_S = 60
 # number.
 SIGNATURE_BACKOFF_S = 10
 
+# A thing picked in the app a moment ago is on the device's list at once, but
+# this gate reads the lists from the account only once a minute. So before a
+# request is refused as "not on this device's list", the account is asked for
+# the list once more. Bounded twice: the answer must come within the time a
+# device waits for one (1,000 ms, then one re-ask with 1,000 ms more), and the
+# account is asked at most once in this many seconds for one device, so a
+# device that keeps asking for something it may not have costs nothing.
+LIST_RECHECK_LIMIT_S = 1.5
+LIST_RECHECK_EVERY_S = 5
+
 # `result` is sent three times, at 0, 60 and 180 ms, so a lost datagram costs
 # nothing.
 RESULT_SENDS_MS = (0, 60, 180)
@@ -437,6 +447,7 @@ class _Remembered:
 
 
 Act = Callable[[str, str, str, float], Awaitable[tuple[str, str]]]
+Recheck = Callable[[str], Awaitable["DeviceRecord | None"]]
 
 
 class Gate:
@@ -444,8 +455,9 @@ class Gate:
 
     1. shape; 2. a device the gate holds a key for; 3. a repeat (answered from
     memory, never acted on twice); 4. the signature; 5. starting; 6. the clock,
-    never backwards; 7. shared; 8. on this device's list; 9. the action fits
-    the kind; 10. take it, act, watch, answer.
+    never backwards; 7. shared; 8. on this device's list (read once more from
+    the account before it is refused, see LIST_RECHECK_EVERY_S); 9. the action
+    fits the kind; 10. take it, act, watch, answer.
 
     Nothing before step 4 does any public-key work, and nothing is ever
     answered for a request whose signature did not verify.
@@ -463,6 +475,7 @@ class Gate:
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         limit_ms: int = CONTROL_LIMIT_MS,
         log: logging.Logger = _LOGGER,
+        recheck: Recheck | None = None,
     ) -> None:
         if not 1000 <= limit_ms <= 30000:
             raise ValueError("limit_ms must be 1000 to 30000")
@@ -481,6 +494,11 @@ class Gate:
         self._acting: set[tuple[str, str]] = set()
         self._last_t: dict[str, int] = {}
         self._backoff_until: dict[str, float] = {}
+        # Step 8's second look: the device's record read again from the
+        # account, when the gate was given a way to ask.
+        self._recheck = recheck
+        self._rechecked_at: dict[str, float] = {}
+        self._rechecking: set[tuple[str, str]] = set()
 
     # The memory ------------------------------------------------------------
 
@@ -518,6 +536,27 @@ class Gate:
             "home control: %s asked %s %s: refused (%s)", req.device, req.action, req.entity, why
         )
 
+    async def _read_again(self, req: Control, now: float) -> DeviceRecord | None:
+        """The device's record as the account has it NOW, or None when it was
+        not asked (no way to ask, or asked for this device a moment ago) or
+        did not answer in time."""
+        if self._recheck is None:
+            return None
+        last = self._rechecked_at.get(req.device)
+        if last is not None and now - last < LIST_RECHECK_EVERY_S:
+            return None
+        self._rechecked_at[req.device] = now
+        key = (req.device, req.id)
+        self._rechecking.add(key)
+        try:
+            async with asyncio.timeout(LIST_RECHECK_LIMIT_S):
+                return await self._recheck(req.device)
+        except Exception as err:  # noqa: BLE001 - a second look that fails is no look
+            self._log.debug("home control: %s's list could not be read again (%r)", req.device, err)
+            return None
+        finally:
+            self._rechecking.discard(key)
+
     # The order of checks ---------------------------------------------------
 
     def screen(self, data: bytes, source: tuple) -> tuple[Control, DeviceRecord] | None:
@@ -554,6 +593,11 @@ class Gate:
             else:
                 self._log.debug("home control: %s reused %s with other bytes; dropped", req.device, req.id)
             return
+        if (req.device, req.id) in self._rechecking:
+            # The device asked again while its list is being read once more:
+            # the one answer is on its way.
+            self._log.debug("home control: %s repeated %s during the second look; dropped", req.device, req.id)
+            return
 
         if self._backoff_until.get(req.device, 0.0) > now:             # 4. the signature
             self._log.debug("home control: %s is in its back-off; dropped", req.device)
@@ -582,8 +626,14 @@ class Gate:
             return
 
         if req.entity not in record.control:                           # 8. on this device's list
-            self._refuse(req, "not_on_list", addr, now)
-            return
+            again = await self._read_again(req, now)
+            if again is None or req.entity not in again.control or req.entity not in again.shared:
+                self._refuse(req, "not_on_list", addr, now)
+                return
+            self._log.info(
+                "home control: %s's list was read again from the account; %s is on it now",
+                req.device, req.entity,
+            )
 
         kind = req.entity.split(".", 1)[0]                             # 9. the action fits
         if service_for(kind, req.action) is None:

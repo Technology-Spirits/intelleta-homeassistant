@@ -85,6 +85,13 @@ What leaves the home, in `PUT /integration/shared` on the account (`share.py`,
   Assistant uses on it, the UDP port, and the public half of the integration's
   own key.
 
+A device's own list (what was picked for it in the app) reaches this integration
+with the readings' once-a-minute read of the account. A thing picked a moment ago
+is on the device at once, so before the gate refuses a request as not on the
+device's list it asks the account for the lists once more
+(`gate.LIST_RECHECK_EVERY_S`, `coordinator.async_read_lists_again`): at most once
+in five seconds for one device, and only as long as a device waits for an answer.
+
 When it is sent: once at each start, when the screen is saved, and at the
 once-a-minute check, but only if the body differs from the last one the account
 accepted. An unchanged set is never sent again; `tests/test_sharing.py` proves
