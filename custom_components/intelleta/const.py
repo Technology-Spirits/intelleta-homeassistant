@@ -40,8 +40,8 @@ CONF_SHARED = "shared"
 # asking more often than it measures buys nothing but traffic.
 DEFAULT_LOCAL_POLL_SECONDS = 30
 
-# ⚠ EVERY CUSTOMER-VISIBLE STRING IN THIS INTEGRATION GOES THROUGH RAYE AND
-# THOMAS. The technical identifier "intelleta" is settled — the company name.
+# ⚠ EVERY CUSTOMER-VISIBLE STRING IN THIS INTEGRATION GOES THROUGH THE WORDS
+# REVIEW. The technical identifier "intelleta" is settled — the company name.
 # Names of products, screens and messages are not, and nothing user-facing
 # should be invented here. Placeholders belong in strings.json where they are
 # easy to find and replace, never scattered through the code.

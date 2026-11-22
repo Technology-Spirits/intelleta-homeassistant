@@ -163,7 +163,7 @@ def test_the_largest_free_block_is_present_because_the_free_total_cannot_answer(
 
 
 def test_every_name_is_placeholder_english_kept_in_one_place():
-    """⚠ Customer-visible strings go through Raye and Thomas. Keeping them all
+    """⚠ Customer-visible strings go through the words review. Keeping them all
     in one table makes that a find-and-replace rather than archaeology."""
     for s in sensors_for(FULL_CUBE):
         assert s.name and s.name.strip() == s.name

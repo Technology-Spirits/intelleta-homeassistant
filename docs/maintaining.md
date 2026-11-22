@@ -40,7 +40,7 @@ by their maintainers on their own timetable. The prepared files are in `brands/`
 
 ## Words
 
-Everything a customer reads goes through Raye and Thomas: the install guide, the setup
+Everything a customer reads goes through the words review: the install guide, the setup
 screen, every error message in `strings.json`, and the name shown in Home Assistant's
 integration list.
 
