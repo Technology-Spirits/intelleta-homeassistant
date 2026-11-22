@@ -705,14 +705,76 @@ def test_a_look_that_fails_is_a_refusal_not_an_error(answer):
 
 def test_a_look_that_takes_too_long_is_a_refusal_within_the_devices_wait(monkeypatch):
     monkeypatch.setattr(gate, "LIST_RECHECK_LIMIT_S", 0.05)
-    h = Harness(recheck=Account(LISTS[KITCHEN] + ("light.floor",), never=True))
-    h.handle(control(KITCHEN, entity="light.floor"))
+
+    async def scenario():
+        h = Harness(recheck=Account(LISTS[KITCHEN] + ("light.floor",), never=True))
+        await h.gate.handle(control(KITCHEN, entity="light.floor"), SOURCE)
+        return h
+
+    h = asyncio.run(scenario())
     assert _refusal(h) == "not_on_list"
 
 
-def test_the_look_fits_inside_the_time_a_device_waits_for_an_answer():
-    """A device waits 1,000 ms, asks once more, and waits 1,000 ms again."""
-    assert gate.LIST_RECHECK_LIMIT_S < 2.0
+def test_the_look_ends_well_inside_the_time_a_device_waits_for_an_answer():
+    """A device waits 1,000 ms from its first send for `taken` or `refused`,
+    and does not ask again before one of them arrives. 0.3.2 allowed 1.5 s:
+    on the owner's bench the device had given up, and the gate then took the
+    request and switched the thing while Andy said Home Assistant had not
+    answered."""
+    assert gate.LIST_RECHECK_LIMIT_S <= 0.7
+
+
+def test_a_look_that_was_too_slow_is_kept_and_the_next_request_is_taken(monkeypatch):
+    """Never a late `taken`: the first request is refused in time, the look
+    finishes on its own, and asking again is judged against the fresh list
+    without asking the account a second time."""
+    monkeypatch.setattr(gate, "LIST_RECHECK_LIMIT_S", 0.05)
+
+    async def scenario():
+        records = {KITCHEN: _record(KITCHEN, LISTS[KITCHEN])}
+        release = asyncio.Event()
+        asked = []
+        sent, acted = [], []
+
+        async def account(device):
+            asked.append(device)
+            await release.wait()
+            records[device] = _record(device, LISTS[KITCHEN] + ("light.floor",))
+            return records[device]
+
+        async def act(entity, kind, action, limit_s):
+            acted.append(entity)
+            return ("changed", "reached on")
+
+        async def no_sleep(_s):
+            return None
+
+        clock = Clock()
+        g = gate.Gate(
+            GATE_KEY, lookup=records.get, act=act,
+            send=lambda data, addr: sent.append(json.loads(data)),
+            wall_ms=lambda: clock.wall, mono=lambda: clock.mono, sleep=no_sleep,
+            recheck=account,
+        )
+        clock.advance(gate.STARTING_S + 10)
+
+        await g.handle(control(KITCHEN, t=clock.wall, entity="light.floor"), SOURCE)
+        first = list(sent)
+        assert acted == [], "nothing is switched by a request that was refused"
+
+        release.set()                      # the account answers, too late for that request
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        clock.advance(3)                   # the person asks again
+        sent.clear()
+        await g.handle(control(KITCHEN, id="0b" * 16, t=clock.wall, entity="light.floor"), SOURCE)
+        return first, list(sent), acted, asked
+
+    first, second, acted, asked = asyncio.run(scenario())
+    assert [(a["kind"], a.get("why")) for a in first] == [("refused", "not_on_list")]
+    assert second[0]["kind"] == "taken"
+    assert acted == ["light.floor"]
+    assert asked == [KITCHEN], "the account was asked once, not twice"
 
 
 def test_a_repeat_that_arrives_during_the_look_is_answered_once():

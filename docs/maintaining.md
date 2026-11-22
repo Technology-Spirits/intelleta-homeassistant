@@ -90,7 +90,10 @@ with the readings' once-a-minute read of the account. A thing picked a moment ag
 is on the device at once, so before the gate refuses a request as not on the
 device's list it asks the account for the lists once more
 (`gate.LIST_RECHECK_EVERY_S`, `coordinator.async_read_lists_again`): at most once
-in five seconds for one device, and only as long as a device waits for an answer.
+in five seconds for one device. A device waits 1,000 ms for its first answer, so
+the gate answers within `gate.LIST_RECHECK_LIMIT_S` (0.6 s) whatever the account
+does: refused if the look has not come back. A look that was too slow still
+finishes, and the device's next request is judged against what it brought.
 
 When it is sent: once at each start, when the screen is saved, and at the
 once-a-minute check, but only if the body differs from the last one the account
